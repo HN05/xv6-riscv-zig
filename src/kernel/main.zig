@@ -11,6 +11,7 @@ const riscv = @import("common").riscv;
 const Atomic = std.atomic.Atomic;
 const Kalloc = @import("kalloc.zig");
 const RingbufMan = @import("ringbuf.zig");
+const plic = @import("plic.zig");
 
 const log = std.log.scoped(.kmain);
 
@@ -26,8 +27,8 @@ pub fn kmain() void {
         c.procinit(); // process table
         c.trapinit(); // trap vectors
         c.trapinithart(); // install kernel trap vector
-        c.plicinit(); // set up interrupt controller
-        c.plicinithart(); // ask PLIC for device interrupts
+        plic.init(); // set up interrupt controller
+        plic.inithart(); // ask PLIC for device interrupts
         c.binit(); // buffer cache
         c.iinit(); // inode table
         c.fileinit(); // file table
@@ -41,7 +42,7 @@ pub fn kmain() void {
         log.info("hart {d} starting", .{c.cpuid()});
         c.kvminithart(); // turn on paging
         c.trapinithart(); // install kernel trap vector
-        c.plicinithart(); // ask PLIC for device interrupts
+        plic.inithart(); // ask PLIC for device interrupts
     }
     c.scheduler();
 }

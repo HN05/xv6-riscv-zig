@@ -31,7 +31,6 @@ const kernel_src = [_][]const u8{
     "src/kernel/exec.c", // exec() system call.
     "src/kernel/sysfile.c", // File-related system calls.
     "src/kernel/kernelvec.S", // Handle traps from kernel, and timer interrupts.
-    "src/kernel/plic.c", // RISC-V interrupt controller.
     "src/kernel/virtio_disk.c", // Disk device driver.
     // "src/kernel/kalloc.c", // Physical page allocator.
 };
