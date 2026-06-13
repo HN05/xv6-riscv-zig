@@ -147,7 +147,7 @@ pub fn build(b: *std.Build) !void {
 
     const kernel = b.addExecutable(.{
         .name = "kernel",
-        .root_source_file = .{ .path = "src/kernel/start.zig" },
+        .root_source_file = b.path("src/kernel/start.zig"),
         .target = target,
         .optimize = std.builtin.Mode.ReleaseSmall,
     });
