@@ -72,7 +72,7 @@ pub fn klogFn(
 }
 
 export fn panic(s: [*:0]u8) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     locking = false;
     console.writeBytes("!KERNEL PANIC!\n");
     console.writeBytes(mem.span(s));

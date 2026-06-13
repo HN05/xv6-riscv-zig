@@ -50,7 +50,7 @@ pub fn logLevelColor(lvl: std.log.Level) Color {
 }
 
 fn cPanic(s: [*:0]u8) callconv(.C) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     _ = sys.write(1, std.mem.span(s)) catch @panic("log write error");
 
     sys.exit(1);
@@ -64,8 +64,8 @@ pub fn panic(
     error_return_trace: ?*std.builtin.StackTrace,
     _: ?usize,
 ) noreturn {
+    @branchHint(.cold);
     _ = error_return_trace;
-    @setCold(true);
     const panic_log = std.log.scoped(.panic);
     panic_log.err("{s}", .{msg});
     sys.exit(1);
