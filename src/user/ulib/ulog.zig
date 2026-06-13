@@ -8,19 +8,10 @@ const sys = @import("user.zig");
 /// The errors that can occur when logging
 const LoggingError = error{};
 
-/// The Writer for the format function
-const Writer = std.io.Writer(void, LoggingError, logCallback);
-
 fn writeByte(b: u8) !void {
     // Suppress unused var warning
     const b_p: [*]const u8 = @ptrCast(&b);
     _ = try sys.write(1, b_p[0..1]);
-}
-
-fn logCallback(context: void, str: []const u8) LoggingError!usize {
-    _ = context;
-    // Suppress unused var warning
-    return sys.write(1, str) catch @panic("log write error");
 }
 
 pub fn ulogFn(
@@ -49,7 +40,7 @@ pub fn logLevelColor(lvl: std.log.Level) Color {
     };
 }
 
-fn cPanic(s: [*:0]u8) callconv(.C) noreturn {
+fn cPanic(s: [*:0]u8) callconv(.c) noreturn {
     @branchHint(.cold);
     _ = sys.write(1, std.mem.span(s)) catch @panic("log write error");
 
@@ -72,9 +63,14 @@ pub fn panic(
 }
 
 pub fn print(comptime format: []const u8, args: anytype) void {
-    fmt.format(Writer{ .context = {} }, format, args) catch |err| {
-        @panic("format: " ++ @errorName(err));
+    //  TODO: stream it so prints are infinite len
+    var buf: [512]u8 = undefined;
+
+    const out = std.fmt.bufPrint(&buf, format, args) catch {
+        @panic("log message too long");
     };
+
+    _ = sys.write(1, out) catch @panic("log write error");
 }
 
 pub export fn printf(format: [*:0]const u8, ...) void {

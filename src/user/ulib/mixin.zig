@@ -5,7 +5,7 @@ const Color = @import("common").color.Color;
 const sys = @import("./user.zig");
 
 pub const ProgMixin = struct {
-    pub fn c_main() callconv(.C) c_int {
+    pub fn c_main() callconv(.c) c_int {
         root.main() catch |err| {
             // This switch case handles the possible error types from main
             // by printing the error's name as a string.
@@ -23,10 +23,10 @@ pub const ProgMixin = struct {
         };
         sys.exit(0);
     }
-    comptime {
-        @export(&c_main, .{ .name = "main", .linkage = .strong });
-        @export(&c_main, .{ .name = "_start", .linkage = .strong });
-    }
+    // comptime {
+    //     @export(&c_main, .{ .name = "main", .linkage = .strong });
+    //     @export(&c_main, .{ .name = "_start", .linkage = .strong });
+    // }
 };
 
 pub const std_options = std.Options{

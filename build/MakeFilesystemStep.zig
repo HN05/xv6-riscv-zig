@@ -169,7 +169,10 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
         const bufs = [_][]u8 {&buf};
         while (true) {
-            const amt = try bin.readStreaming(io, &bufs);
+            const amt = bin.readStreaming(io, &bufs) catch |err| switch (err) {
+                error.EndOfStream => break,
+                else => return err,
+            };
             if (amt == 0) break;
             try iappend(io, @as(u32, inum), buf[0..amt]);
         }

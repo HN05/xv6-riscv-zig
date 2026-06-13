@@ -27,22 +27,9 @@ const console = struct {
     }
 };
 
-/// The errors that can occur when logging
-const LoggingError = error{};
-
-/// The Writer for the format function
-const Writer = std.io.Writer(void, LoggingError, logCallback);
-
 var lock: SpinLock = SpinLock{ .lock = .{} };
 pub var locking: bool = true;
 pub export var panicked: bool = false;
-
-fn logCallback(context: void, str: []const u8) LoggingError!usize {
-    // Suppress unused var warning
-    _ = context;
-    console.writeBytes(str);
-    return str.len;
-}
 
 fn logLevelColor(lvl: std.log.Level) Color {
     return switch (lvl) {
@@ -82,9 +69,14 @@ export fn panic(s: [*:0]u8) noreturn {
 }
 
 pub fn print(comptime format: []const u8, args: anytype) void {
-    fmt.format(Writer{ .context = {} }, format, args) catch |err| {
-        @panic("format: " ++ @errorName(err));
+    //  TODO: make buf infinite
+    var buf: [512]u8 = undefined;
+
+    const out = std.fmt.bufPrint(&buf, format, args) catch {
+        @panic("log message too long");
     };
+
+    console.writeBytes(out);
 }
 
 pub export fn printf(format: [*:0]const u8, ...) void {

@@ -5,7 +5,12 @@ const Color = @import("common").color.Color;
 const log_root = @import("./ulib/ulog.zig");
 
 const mixin = @import("./ulib/mixin.zig");
-usingnamespace mixin.ProgMixin;
+pub const c_main = mixin.ProgMixin.c_main;
+comptime {
+    @export(&c_main, .{ .name = "main", .linkage = .strong });
+    @export(&c_main, .{ .name = "_start", .linkage = .strong });
+}
+
 // root overrides for std lib
 pub const std_options = mixin.std_options;
 pub const os = mixin.os;
