@@ -18,4 +18,4 @@ user/usys.S
 .gdb_history
 
 zig-out/
-zig-cache/
+.zig-cache/
