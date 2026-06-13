@@ -1,5 +1,9 @@
 // Much of this code comes from https://github.com/binarycraft007/xv6-riscv-zig
 
+comptime {
+    _ = @import("uart.zig");
+}
+
 const std = @import("std");
 const riscv = @import("common").riscv;
 const main = @import("main.zig");

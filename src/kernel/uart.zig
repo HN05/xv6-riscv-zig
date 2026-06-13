@@ -48,7 +48,7 @@ var tx_r: u64 = 0; // read next from uart_tx_buf[uart_tx_r % UART_TX_BUF_SIZE]
 pub const Error = error{NotReady};
 
 pub fn init() void {
-    tx_lock.init();
+    tx_lock.init("tx lock");
     // disable interrupts.
     writeReg(IER, 0x00);
 
@@ -87,7 +87,7 @@ pub fn putc(ch: u8) void {
     while (tx_w == tx_r + TX_BUF_SIZE) {
         // buffer is full.
         // wait for uartstart() to open up space in the buffer.
-        c.sleep(&tx_r, &tx_lock.lock);
+        c.sleep(&tx_r, @ptrCast(&tx_lock.lock));
     }
     tx_buf[tx_w % TX_BUF_SIZE] = ch;
     tx_w += 1;
@@ -128,7 +128,7 @@ pub fn start() void {
             return;
         }
 
-        var ch = tx_buf[tx_r % TX_BUF_SIZE];
+        const ch = tx_buf[tx_r % TX_BUF_SIZE];
         tx_r += 1;
 
         // maybe uartputc() is waiting for space in the buffer.
@@ -141,7 +141,7 @@ pub fn start() void {
 /// read one input character from the UART.
 /// return NotReady if none is waiting.
 pub fn getc() !usize {
-    if (readReg(LSR) & 0x01) {
+    if ((readReg(LSR) & LSR_RX_READY) != 0) {
         // input data is ready.
         return readReg(RHR);
     } else {
@@ -152,11 +152,11 @@ pub fn getc() !usize {
 /// handle a uart interrupt, raised because input has
 /// arrived, or the uart is ready for more output, or
 /// both. called from devintr().
-pub fn uartIntr() !void {
+pub fn uartIntr() void {
     // read and process incoming characters.
     while (true) {
-        var ch = getc() catch break;
-        c.consoleintr(ch);
+        const ch = getc() catch break;
+        c.consoleintr(@intCast(ch));
     }
 
     // send buffered characters.
@@ -176,3 +176,26 @@ pub fn readReg(reg: usize) u8 {
 pub fn writeReg(reg: usize, value: u8) void {
     getRegPtr(reg).* = value;
 }
+
+// c intorop
+export fn uartinit() void {
+    init();
+}
+
+export fn uartintr() void {
+    uartIntr();
+}
+
+export fn uartputc(char: c_int) void {
+    putc(@intCast(char));
+}
+
+export fn uartputc_sync(char: c_int) void {
+    putcSync(@intCast(char));
+}
+
+export fn uartgetc() c_int {
+    const char = getc() catch return -1;
+    return @intCast(char);
+}
+

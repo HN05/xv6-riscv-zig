@@ -12,7 +12,6 @@ const QemuRunStep = @import("build/QemuRunStep.zig");
 const kernel_src = [_][]const u8{
     "src/kernel/entry.S", // Very first boot instructions.
     "src/kernel/console.c", // Connect to the user keyboard and screen.
-    "src/kernel/uart.c", // Serial-port console device driver.
     "src/kernel/spinlock.c", // Locks that don’t yield the CPU.
     "src/kernel/string.c", // C string and byte-array library.
     "src/kernel/vm.c", // Manage page tables and address spaces.
@@ -32,7 +31,6 @@ const kernel_src = [_][]const u8{
     "src/kernel/sysfile.c", // File-related system calls.
     "src/kernel/kernelvec.S", // Handle traps from kernel, and timer interrupts.
     "src/kernel/virtio_disk.c", // Disk device driver.
-    // "src/kernel/kalloc.c", // Physical page allocator.
 };
 
 const cflags = [_][]const u8{
