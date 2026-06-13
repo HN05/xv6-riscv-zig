@@ -2,8 +2,8 @@
 
 const memlayout = @import("memlayout.zig");
 const SpinLock = @import("spinlock.zig").SpinLock;
-// const console = @import("console.zig");
 const log_root = @import("klog.zig");
+const console = @import("console.zig");
 
 const c = @cImport({
     @cInclude("kernel/types.h");
@@ -78,7 +78,7 @@ pub fn init() void {
 // because it may block, it can't be called
 // from interrupts; it's only suitable for use
 // by write().
-pub fn putc(ch: u8) void {
+pub fn putCharacter(ch: u8) void {
     transmit_lock.acquire();
     defer transmit_lock.release();
 
@@ -98,7 +98,7 @@ pub fn putc(ch: u8) void {
 // use interrupts, for use by kernel printf() and
 // to echo characters. it spins waiting for the uart's
 // output register to be empty.
-pub fn putcSync(ch: u8) void {
+pub fn putCharSync(ch: u8) void {
     c.push_off();
 
     if (log_root.panicked) while (true) {};
@@ -128,19 +128,19 @@ pub fn start() void {
             return;
         }
 
-        const ch = transmit_buf[transmit_r % transmit_buf_size];
+        const character = transmit_buf[transmit_r % transmit_buf_size];
         transmit_r += 1;
 
         // maybe uartputc() is waiting for space in the buffer.
         c.wakeup(&transmit_r);
 
-        writeReg(transmit_holding_register, ch);
+        writeReg(transmit_holding_register, character);
     }
 }
 
 /// read one input character from the UART.
 /// return NotReady if none is waiting.
-pub fn getc() !usize {
+pub fn getCharacter() !u8 {
     if ((readReg(line_status_register) & line_status_receive_ready) != 0) {
         // input data is ready.
         return readReg(receive_holding_register);
@@ -152,11 +152,11 @@ pub fn getc() !usize {
 /// handle a uart interrupt, raised because input has
 /// arrived, or the uart is ready for more output, or
 /// both. called from devintr().
-pub fn uartIntr() void {
+pub fn uartInterrupt() void {
     // read and process incoming characters.
     while (true) {
-        const ch = getc() catch break;
-        c.consoleintr(@intCast(ch));
+        const character = getCharacter() catch break;
+        console.consoleInterrupt(character);
     }
 
     // send buffered characters.
@@ -183,19 +183,19 @@ export fn uartinit() void {
 }
 
 export fn uartintr() void {
-    uartIntr();
+    uartInterrupt();
 }
 
 export fn uartputc(char: c_int) void {
-    putc(@intCast(char));
+    putCharacter(@intCast(char));
 }
 
 export fn uartputc_sync(char: c_int) void {
-    putcSync(@intCast(char));
+    putCharSync(@intCast(char));
 }
 
 export fn uartgetc() c_int {
-    const char = getc() catch return -1;
+    const char = getCharacter() catch return -1;
     return @intCast(char);
 }
 

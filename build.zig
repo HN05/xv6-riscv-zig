@@ -11,7 +11,6 @@ const QemuRunStep = @import("build/QemuRunStep.zig");
 
 const kernel_src = [_][]const u8{
     "src/kernel/entry.S", // Very first boot instructions.
-    "src/kernel/console.c", // Connect to the user keyboard and screen.
     "src/kernel/spinlock.c", // Locks that don’t yield the CPU.
     "src/kernel/string.c", // C string and byte-array library.
     "src/kernel/vm.c", // Manage page tables and address spaces.

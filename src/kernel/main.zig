@@ -12,6 +12,7 @@ const Atomic = std.atomic.Atomic;
 const Kalloc = @import("kalloc.zig");
 const RingbufMan = @import("ringbuf.zig");
 const plic = @import("plic.zig");
+const console = @import("console.zig");
 
 const log = std.log.scoped(.kmain);
 
@@ -19,7 +20,7 @@ var started = std.atomic.Value(bool).init(false);
 
 pub fn kmain() void {
     if (c.cpuid() == 0) {
-        c.consoleinit();
+        console.init();
         log.info("xv6 kernel is booting", .{});
         Kalloc.kinit(); // set up allocator (zig)
         c.kvminit(); // create kernel page table
