@@ -151,16 +151,18 @@ pub fn build(b: *std.Build) !void {
         .optimize = .ReleaseSmall,
     });
 
-    const kernel = b.addExecutable(.{ .name = "kernel", .root_module = kernel_mod });
-    kernel.root_module.addAnonymousImport("common", .{ .root_source_file = b.path("src/common/mod.zig") });
     kernel_mod.addCSourceFiles(.{ .files = &kernel_src, .flags = &cflags });
     kernel_mod.addIncludePath(b.path("src"));
+    kernel_mod.addAnonymousImport("common", .{ .root_source_file = b.path("src/common/mod.zig") });
+    kernel_mod.strip = false;
+    kernel_mod.single_threaded = true;
+    kernel_mod.code_model = .medium;
+
+    const kernel = b.addExecutable(.{ .name = "kernel", .root_module = kernel_mod });
     kernel.setLinkerScript(b.path(kernel_linker));
     kernel.entry = .{ .symbol_name = "_entry" };
-    kernel.root_module.strip = false;
-    kernel.root_module.single_threaded = true;
-    kernel.root_module.code_model = .medium;
     kernel.lto = .thin;
+
     b.installArtifact(kernel);
 
     const syscall_gen_step = addSyscallGen(b, &syscalls);
