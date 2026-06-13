@@ -111,11 +111,11 @@ fn consoleRead(userDestination: c_int, start: c.uint64, n: c_int) callconv(.c) c
             c.sleep(&console.readIndex, @ptrCast(&console.lock.lock));
         }
 
-        console.readIndex += 1;
         character = console.buffer[console.readIndex % input_buf_size];
+        console.readIndex += 1;
 
         if (character == control('D')) { // end of file
-            if (n < target) {
+            if (charsLeft < target) {
                 console.readIndex -= 1;
                 // Save ^D for next time, to make sure
                 // caller gets a 0-byte result.
@@ -161,7 +161,7 @@ pub fn consoleInterrupt(character: u8) void {
         control('U') => { // kill line
             while (console.editIndex != console.writeIndex) {
                 // go until newline
-                if (console.buffer[console.editIndex - 1] % input_buf_size == '\n') {
+                if (console.buffer[(console.editIndex - 1) % input_buf_size] == '\n') {
                     break;
                 }
                 console.editIndex -= 1;
@@ -179,16 +179,16 @@ pub fn consoleInterrupt(character: u8) void {
             if (character == 0) {
                 return;
             }
-            if ((console.editIndex - console.writeIndex) >= input_buf_size) {
+            if ((console.editIndex - console.readIndex) >= input_buf_size) {
                 return;
             }
             // make '\r' into '\n'
             const converted_character = if (character == '\r') '\n' else character;
             putCharacter(converted_character);
 
-            console.editIndex += 1;
             // store for consumption by consoleread().
             console.buffer[console.editIndex % input_buf_size] = converted_character;
+            console.editIndex += 1;
 
             if (converted_character == '\n' or converted_character == control('D')) {
                 // wake up consoleread() if a whole line (or end-of-file)
