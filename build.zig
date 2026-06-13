@@ -160,7 +160,7 @@ pub fn build(b: *std.Build) !void {
     kernel.root_module.strip = false;
     kernel.root_module.single_threaded = true;
     kernel.root_module.code_model = .medium;
-    kernel.lto = .full;
+    kernel.lto = .thin;
     b.installArtifact(kernel);
 
     const syscall_gen_step = addSyscallGen(b, &syscalls);
