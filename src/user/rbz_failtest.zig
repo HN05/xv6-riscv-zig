@@ -5,7 +5,7 @@ const com = @import("common");
 const com_rb = @import("common").ringbuf;
 const rb = @import("./ulib/uringbuf.zig");
 const log_root = @import("./ulib/ulog.zig");
-const RndGen = std.rand.DefaultPrng;
+const RndGen = std.Random.DefaultPrng;
 
 const mixin = @import("./ulib/mixin.zig");
 usingnamespace mixin.ProgMixin;

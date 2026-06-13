@@ -183,7 +183,7 @@ pub fn build(b: *std.Build) !void {
                 const user_prog = b.addExecutable(.{
                     .name = prog.name,
                     .root_source_file = b.path(src),
-                    .optimize = std.builtin.Mode.ReleaseSafe,
+                    .optimize = std.builtin.Mode.ReleaseSmall,
                     .target = target,
                 });
                 user_prog.step.dependOn(&ulib.step);

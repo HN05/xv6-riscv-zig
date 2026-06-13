@@ -56,7 +56,7 @@ fn cPanic(s: [*:0]u8) callconv(.C) noreturn {
     sys.exit(1);
 }
 comptime {
-    @export(cPanic, .{ .name = "panic", .linkage = .strong });
+    @export(&cPanic, .{ .name = "panic", .linkage = .strong });
 }
 
 pub fn panic(

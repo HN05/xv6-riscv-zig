@@ -24,8 +24,8 @@ pub const ProgMixin = struct {
         sys.exit(0);
     }
     comptime {
-        @export(c_main, .{ .name = "main", .linkage = .strong });
-        @export(c_main, .{ .name = "_start", .linkage = .strong });
+        @export(&c_main, .{ .name = "main", .linkage = .strong });
+        @export(&c_main, .{ .name = "_start", .linkage = .strong });
     }
 };
 
