@@ -1,0 +1,221 @@
+const std = @import("std");
+const SpinLock = @import("spinlock.zig").SpinLock;
+const riscv = @import("common").riscv;
+const memlayout = @import("memlayout.zig");
+const uart = @import("uart.zig");
+const print = @import("klog.zig").print;
+const plic = @import("plic.zig");
+
+const c = @cImport({
+    @cInclude("kernel/types.h");
+    @cInclude("kernel/param.h");
+    @cInclude("kernel/memlayout.h");
+    @cInclude("kernel/riscv.h");
+    @cInclude("kernel/spinlock.h");
+    @cInclude("kernel/proc.h");
+    @cInclude("kernel/defs.h");
+});
+
+export var ticks: c.uint = 0;
+
+export var tickslock: SpinLock = undefined;
+
+extern const trampoline: anyopaque;
+extern const uservec: anyopaque;
+extern const userret: anyopaque;
+
+extern fn kernelvec() void;
+
+pub fn init() void {
+    tickslock.init("ticks lock");
+}
+
+pub fn initHart() void {
+    riscv.w_stvec(@intFromPtr(&kernelvec));
+}
+
+//
+// handle an interrupt, exception, or system call from user space.
+// called from trampoline.S
+//
+export fn usertrap() void {
+    if (riscv.SSTATUS.isEnabled(.SPP, riscv.r_sstatus())) {
+        @panic("usertrap: not from user mode");
+    }
+
+    // send interrupts and exceptions to kerneltrap(),
+    // since we're now in the kernel.
+    riscv.w_stvec(@intFromPtr(&kernelvec));
+
+    const process: *c.struct_proc = c.myproc();
+    const epc = &process.trapframe[0].epc;
+
+    // save user program counter.
+    epc.* = @intCast(riscv.r_sepc());
+
+    const scause = riscv.readScause();
+    switch (scause.kind()) {
+        .syscall => {
+            if (c.killed(process) != 0) {
+                c.exit(-1);
+            }
+
+            // sepc points to the ecall instruction,
+            // but we want to return to the next instruction.
+            epc.* += 4;
+
+            // an interrupt will change sepc, scause, and sstatus,
+            // so enable only now that we're done with those registers.
+            riscv.intr_on();
+
+            c.syscall();
+        },
+        .interrupt => {
+            handleDeviceInterrupt(scause);
+        },
+        .exception => {
+            print("usertrap(): unexpected scause {x} pid={d}\n", .{ scause.raw(), process.pid });
+            print("            sepc={x} stval={x}\n", .{ riscv.r_sepc(), riscv.r_stval() });
+            c.setkilled(process);
+        },
+    }
+
+    if (c.killed(process) != 0) {
+        c.exit(-1);
+    }
+
+    // give up the CPU if this is a timer interrupt.
+    if (scause == .supervisorSoftwareInterrupt) {
+        c.yield();
+    }
+
+    usertrapret();
+}
+
+//
+// return to user space
+//
+export fn usertrapret() void {
+    const process: *c.struct_proc = c.myproc();
+    const trampolineAddr = @intFromPtr(&trampoline);
+    const uservecAddr = @intFromPtr(&uservec);
+    const userretAddr = @intFromPtr(&userret);
+
+    // we're about to switch the destination of traps from
+    // kerneltrap() to usertrap(), so turn off interrupts until
+    // we're back in user space, where usertrap() is correct.
+    riscv.intr_off();
+
+    // send syscalls, interrupts, and exceptions to uservec in trampoline.S
+    const trampoline_uservec = memlayout.TRAMPOLINE + (uservecAddr - trampolineAddr);
+    riscv.w_stvec(trampoline_uservec);
+
+    // set up trapframe values that uservec will need when
+    // the process next traps into the kernel.
+    const trapframe: *c.struct_trapframe = process.trapframe;
+    trapframe.kernel_satp = riscv.r_satp(); // kernel page table
+    trapframe.kernel_sp = process.kstack + riscv.PGSIZE; // process's kernel stack
+    trapframe.kernel_trap = @intFromPtr(&usertrap);
+    trapframe.kernel_hartid = riscv.r_tp(); // hartid for cpuid()
+
+    // set up the registers that trampoline.S's sret will use
+    // to get to user space.
+
+    // set S Previous Privilege mode to User.
+    var sstatus = riscv.r_sstatus();
+    sstatus = riscv.SSTATUS.disable(.SPP, sstatus); // clear SPP to 0 for user mode
+    sstatus = riscv.SSTATUS.enable(.SPIE, sstatus); // enable interrupts in user mode
+    riscv.w_sstatus(sstatus);
+
+    // set S Exception Program Counter to the saved user pc.
+    riscv.w_sepc(trapframe.epc);
+
+    // tell trampoline.S the user page table to switch to.
+    const satp = riscv.MAKE_SATP(process.pagetable);
+
+    // jump to userret in trampoline.S at the top of memory, which
+    // switches to the user page table, restores user registers,
+    // and switches to user mode with sret.
+    const trampoline_userret: *const fn (usize) callconv(.c) void = @ptrFromInt(memlayout.TRAMPOLINE + (userretAddr - trampolineAddr));
+    trampoline_userret(satp);
+}
+
+// interrupts and exceptions from kernel code go here via kernelvec,
+// on whatever the current kernel stack is.
+export fn kerneltrap() void {
+    const sepc = riscv.r_sepc();
+    const sstatus = riscv.r_sstatus();
+    const scause = riscv.readScause();
+
+    if (!riscv.SSTATUS.isEnabled(.SPP, sstatus)) {
+        @panic("kerneltrap: not from supervisor mode");
+    }
+    if (riscv.intr_get()) {
+        @panic("kerneltrap: interrupts enabled");
+    }
+
+    if (scause.isInterrupt()) {
+        handleDeviceInterrupt(scause);
+    } else {
+        print("scause {x}\n", .{scause.raw()});
+        print("sepc={x} stval={x}\n", .{ sepc, riscv.r_stval() });
+        @panic("kerneltrap");
+    }
+
+    // give up the CPU if this is a timer interrupt.
+    if (scause == .supervisorSoftwareInterrupt and c.myproc() != 0 and c.myproc().*.state == c.RUNNING) {
+        c.yield();
+    }
+
+    // the yield() may have caused some traps to occur,
+    // so restore trap registers for use by kernelvec.S's sepc instruction.
+    riscv.w_sepc(sepc);
+    riscv.w_sstatus(sstatus);
+}
+
+fn clockintr() void {
+    tickslock.acquire();
+    ticks += 1;
+    c.wakeup(&ticks);
+    tickslock.release();
+}
+
+// check if it's an external interrupt or software interrupt,
+// and handle it.
+// returns 2 if timer interrupt,
+// 1 if other device,
+// 0 if not recognized.
+fn handleDeviceInterrupt(scause: riscv.Scause) void {
+    switch (scause) {
+        .supervisorExternalInterrupt => {
+            // this is a supervisor external interrupt, via PLIC.
+
+            // irq indicates which device interrupted.
+            const irq = plic.claim();
+            if (irq == memlayout.UART0_IRQ) {
+                uart.interrupt();
+            } else if (irq == memlayout.VIRTIO0_IRQ) {
+                c.virtio_disk_intr();
+            } else if (irq != 0) {
+                print("unexpected interrupt irq={d}\n", .{irq});
+            }
+            // the PLIC allows each device to raise at most one
+            // interrupt at a time; tell the PLIC the device is
+            // now allowed to interrupt again.
+            if (irq != 0) {
+                plic.complete(irq);
+            }
+        },
+        .supervisorSoftwareInterrupt => {
+            // software interrupt from a machine-mode timer interrupt,
+            // forwarded by timervec in kernelvec.S.
+            if (c.cpuid() == 0) {
+                clockintr();
+            }
+            // acknowledge the software interrupt by clearing
+            // the SSIP bit in sip.
+            riscv.w_sip(riscv.SIP.disable(.SSIP, riscv.r_sip()));
+        },
+        else => return,
+    }
+}

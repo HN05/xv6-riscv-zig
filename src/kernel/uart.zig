@@ -152,7 +152,7 @@ pub fn getCharacter() !u8 {
 /// handle a uart interrupt, raised because input has
 /// arrived, or the uart is ready for more output, or
 /// both. called from devintr().
-pub fn uartInterrupt() void {
+pub fn interrupt() void {
     // read and process incoming characters.
     while (true) {
         const character = getCharacter() catch break;
@@ -175,27 +175,5 @@ fn readReg(reg: usize) u8 {
 
 fn writeReg(reg: usize, value: u8) void {
     getRegPtr(reg).* = value;
-}
-
-// c intorop
-export fn uartinit() void {
-    init();
-}
-
-export fn uartintr() void {
-    uartInterrupt();
-}
-
-export fn uartputc(char: c_int) void {
-    putCharacter(@intCast(char));
-}
-
-export fn uartputc_sync(char: c_int) void {
-    putCharSync(@intCast(char));
-}
-
-export fn uartgetc() c_int {
-    const char = getCharacter() catch return -1;
-    return @intCast(char);
 }
 

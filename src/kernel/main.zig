@@ -13,6 +13,7 @@ const Kalloc = @import("kalloc.zig");
 const RingbufMan = @import("ringbuf.zig");
 const plic = @import("plic.zig");
 const console = @import("console.zig");
+const trap = @import("trap.zig");
 
 const log = std.log.scoped(.kmain);
 
@@ -26,10 +27,10 @@ pub fn kmain() void {
         c.kvminit(); // create kernel page table
         c.kvminithart(); // turn on paging
         c.procinit(); // process table
-        c.trapinit(); // trap vectors
-        c.trapinithart(); // install kernel trap vector
+        trap.init(); // trap vectors
+        trap.initHart(); // install kernel trap vector
         plic.init(); // set up interrupt controller
-        plic.inithart(); // ask PLIC for device interrupts
+        plic.initHart(); // ask PLIC for device interrupts
         c.binit(); // buffer cache
         c.iinit(); // inode table
         c.fileinit(); // file table
@@ -42,8 +43,8 @@ pub fn kmain() void {
 
         log.info("hart {d} starting", .{c.cpuid()});
         c.kvminithart(); // turn on paging
-        c.trapinithart(); // install kernel trap vector
-        plic.inithart(); // ask PLIC for device interrupts
+        trap.initHart(); // install kernel trap vector
+        plic.initHart(); // ask PLIC for device interrupts
     }
     c.scheduler();
 }

@@ -41,6 +41,19 @@ pub const SSTATUS = enum(usize) {
     UPIE = 1 << 4, // User Previous Interrupt Enable
     SIE = 1 << 1, // Supervisor Interrupt Enable
     UIE = 1 << 0, // User Interrupt Enable
+
+
+    pub fn enable(self: SSTATUS, value: usize) usize {
+        return value | @intFromEnum(self);
+    }
+
+    pub fn disable(self: SSTATUS, value: usize) usize {
+        return value & ~@intFromEnum(self);
+    }
+
+    pub fn isEnabled(self: SSTATUS, value: usize) bool { 
+        return (value & @intFromEnum(self)) != 0;
+    }
 };
 
 pub inline fn r_sstatus() usize {
@@ -57,6 +70,24 @@ pub inline fn w_sstatus(sstatus: usize) void {
 }
 
 // Supervisor Interrupt Pending
+pub const SIP = enum(usize) {
+    SSIP = 1 << 1, // supervisor software interrupt pending
+    STIP = 1 << 5, // supervisor timer interrupt pending
+    SEIP = 1 << 9, // supervisor external interrupt pending
+
+    pub fn enable(self: SIP, value: usize) usize {
+        return value | @intFromEnum(self);
+    }
+
+    pub fn disable(self: SIP, value: usize) usize {
+        return value & ~@intFromEnum(self);
+    }
+
+    pub fn isEnabled(self: SIP, value: usize) bool { 
+        return (value & @intFromEnum(self)) != 0;
+    }
+};
+
 pub inline fn r_sip() usize {
     return asm volatile ("csrr a0, sip"
         : [ret] "={a0}" (-> usize),
@@ -227,11 +258,109 @@ pub inline fn r_mscratch() usize {
     );
 }
 
+pub const Scause = enum(usize) {
+    const TrapKind = enum {
+        syscall,
+        interrupt,
+        exception,
+    };
+    // Interrupt bit clear: synchronous exceptions
+    instructionAddressMisaligned = 0,
+    instructionAccessFault = 1,
+    illegalInstruction = 2,
+    breakpoint = 3,
+    loadAddressMisaligned = 4,
+    loadAccessFault = 5,
+    storeAddressMisaligned = 6,
+    storeAccessFault = 7,
+
+    environmentCallFromUMode = 8,
+    environmentCallFromSMode = 9,
+    environmentCallFromVMode = 10,
+    environmentCallFromMMode = 11,
+
+    instructionPageFault = 12,
+    loadPageFault = 13,
+    storePageFault = 15,
+
+    instructionGuestPageFault = 20,
+    loadGuestPageFault = 21,
+    virtualInstruction = 22,
+    storeGuestPageFault = 23,
+
+    softwareCheck = 24,
+    hardwareError = 25,
+
+    // Interrupt bit set
+    userSoftwareInterrupt = interruptBit | 0,
+    supervisorSoftwareInterrupt = interruptBit | 1,
+    virtualSupervisorSoftwareInterrupt = interruptBit | 2,
+    machineSoftwareInterrupt = interruptBit | 3,
+
+    userTimerInterrupt = interruptBit | 4,
+    supervisorTimerInterrupt = interruptBit | 5,
+    virtualSupervisorTimerInterrupt = interruptBit | 6,
+    machineTimerInterrupt = interruptBit | 7,
+
+    userExternalInterrupt = interruptBit | 8,
+    supervisorExternalInterrupt = interruptBit | 9,
+    virtualSupervisorExternalInterrupt = interruptBit | 10,
+    machineExternalInterrupt = interruptBit | 11,
+
+    supervisorGuestExternalInterrupt = interruptBit | 12,
+    localCounterOverflowInterrupt = interruptBit | 13,
+
+    // Allows storing platform/custom/unknown scause values too.
+    _,
+
+    const interruptBit: usize = 1 << (@bitSizeOf(usize) - 1);
+
+    pub fn raw(self: Scause) usize {
+        return @intFromEnum(self);
+    }
+
+    pub fn isInterrupt(self: Scause) bool {
+        return (self.raw() & interruptBit) != 0;
+    }
+
+    pub fn code(self: Scause) usize {
+        return self.raw() & ~interruptBit;
+    }
+
+    pub fn kind(self: Scause) TrapKind {
+        return switch (self) {
+            .environmentCallFromUMode => .syscall,
+
+            .userSoftwareInterrupt,
+            .supervisorSoftwareInterrupt,
+            .virtualSupervisorSoftwareInterrupt,
+            .machineSoftwareInterrupt,
+            .userTimerInterrupt,
+            .supervisorTimerInterrupt,
+            .virtualSupervisorTimerInterrupt,
+            .machineTimerInterrupt,
+            .userExternalInterrupt,
+            .supervisorExternalInterrupt,
+            .virtualSupervisorExternalInterrupt,
+            .machineExternalInterrupt,
+            .supervisorGuestExternalInterrupt,
+            .localCounterOverflowInterrupt,
+            => .interrupt,
+
+            else => .exception,
+        };
+    }
+};
+
 // Supervisor Trap Cause
-pub inline fn r_scause() usize {
+inline fn readScauseRaw() usize {
     return asm volatile ("csrr a0, scause"
         : [ret] "={a0}" (-> usize),
     );
+}
+
+pub inline fn readScause() Scause {
+    return @enumFromInt(readScauseRaw());
 }
 
 // Supervisor Trap Value
