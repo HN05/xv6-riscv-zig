@@ -19,3 +19,6 @@ user/usys.S
 
 zig-out/
 .zig-cache/
+zig-cache
+zig
+zig-lib
