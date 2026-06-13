@@ -22,38 +22,38 @@ const c = @cImport({
 /// some have different meanings for
 /// read vs write.
 /// see http://byterunner.com/16550.html
-pub const RHR = 0; // receive holding register (for input bytes)
-pub const THR = 0; // transmit holding register (for output bytes)
-pub const IER = 1; // interrupt enable register
-pub const IER_RX_ENABLE = 1 << 0;
-pub const IER_TX_ENABLE = 1 << 1;
-pub const FCR = 2; // FIFO control register
-pub const FCR_FIFO_ENABLE = 1 << 0;
-pub const FCR_FIFO_CLEAR = 3 << 1; // clear the content of the two FIFOs
-pub const ISR = 2; // interrupt status register
-pub const LCR = 3; // line control register
-pub const LCR_EIGHT_BITS = 3 << 0;
-pub const LCR_BAUD_LATCH = 1 << 7; // special mode to set baud rate
-pub const LSR = 5; // line status register
-pub const LSR_RX_READY = 1 << 0; // input is waiting to be read from RHR
-pub const LSR_TX_IDLE = 1 << 5; // THR can accept another character to send
+const receive_holding_register = 0; // receive holding register (for input bytes)
+const transmit_holding_register = 0; // transmit holding register (for output bytes)
+const interrupt_enable_register = 1; // interrupt enable register
+const interrupt_enable_receive = 1 << 0;
+const interrupt_enable_transmit = 1 << 1;
+const fifo_control_register = 2; // FIFO control register
+const fifo_enable = 1 << 0;
+const fifo_clear = 3 << 1; // clear the content of the two FIFOs
+const interrupt_status_register = 2; // interrupt status register
+const line_control_register = 3; // line control register
+const line_control_eight_bits = 3 << 0;
+const line_control_baud_latch = 1 << 7; // special mode to set baud rate
+const line_status_register = 5; // line status register
+const line_status_receive_ready = 1 << 0; // input is waiting to be read from RHR
+const line_status_transmit_idle = 1 << 5; // THR can accept another character to send
 
-pub const TX_BUF_SIZE = 32;
+const transmit_buf_size = 32;
 
-var tx_lock: SpinLock = undefined;
-var tx_buf: [TX_BUF_SIZE]u8 = [_]u8{0} ** TX_BUF_SIZE;
-var tx_w: u64 = 0; // write next to uart_tx_buf[uart_tx_w % UART_TX_BUF_SIZE]
-var tx_r: u64 = 0; // read next from uart_tx_buf[uart_tx_r % UART_TX_BUF_SIZE]
+var transmit_lock: SpinLock = undefined;
+var transmit_buf: [transmit_buf_size]u8 = [_]u8{0} ** transmit_buf_size;
+var transmit_w: u64 = 0; // write next to uart_tx_buf[uart_tx_w % UART_TX_BUF_SIZE]
+var transmit_r: u64 = 0; // read next from uart_tx_buf[uart_tx_r % UART_TX_BUF_SIZE]
 
 pub const Error = error{NotReady};
 
 pub fn init() void {
-    tx_lock.init("tx lock");
+    transmit_lock.init("tx lock");
     // disable interrupts.
-    writeReg(IER, 0x00);
+    writeReg(interrupt_enable_register, 0x00);
 
     // special mode to set baud rate.
-    writeReg(LCR, LCR_BAUD_LATCH);
+    writeReg(line_control_register, line_control_baud_latch);
 
     // LSB for baud rate of 38.4K.
     writeReg(0, 0x03);
@@ -63,13 +63,13 @@ pub fn init() void {
 
     // leave set-baud mode,
     // and set word length to 8 bits, no parity.
-    writeReg(LCR, LCR_EIGHT_BITS);
+    writeReg(line_control_register, line_control_eight_bits);
 
     // reset and enable FIFOs.
-    writeReg(FCR, FCR_FIFO_ENABLE | FCR_FIFO_CLEAR);
+    writeReg(fifo_control_register, fifo_enable | fifo_clear);
 
     // enable transmit and receive interrupts.
-    writeReg(IER, IER_TX_ENABLE | IER_RX_ENABLE);
+    writeReg(interrupt_enable_register, interrupt_enable_receive | interrupt_enable_transmit);
 }
 
 // add a character to the output buffer and tell the
@@ -79,18 +79,18 @@ pub fn init() void {
 // from interrupts; it's only suitable for use
 // by write().
 pub fn putc(ch: u8) void {
-    tx_lock.acquire();
-    defer tx_lock.release();
+    transmit_lock.acquire();
+    defer transmit_lock.release();
 
     if (log_root.panicked) while (true) {};
 
-    while (tx_w == tx_r + TX_BUF_SIZE) {
+    while (transmit_w == transmit_r + transmit_buf_size) {
         // buffer is full.
         // wait for uartstart() to open up space in the buffer.
-        c.sleep(&tx_r, @ptrCast(&tx_lock.lock));
+        c.sleep(&transmit_r, @ptrCast(&transmit_lock.lock));
     }
-    tx_buf[tx_w % TX_BUF_SIZE] = ch;
-    tx_w += 1;
+    transmit_buf[transmit_w % transmit_buf_size] = ch;
+    transmit_w += 1;
     start();
 }
 
@@ -104,8 +104,8 @@ pub fn putcSync(ch: u8) void {
     if (log_root.panicked) while (true) {};
 
     // wait for Transmit Holding Empty to be set in LSR.
-    while ((readReg(LSR) & LSR_TX_IDLE) == 0) {}
-    writeReg(THR, ch);
+    while ((readReg(line_status_register) & line_status_transmit_idle) == 0) {}
+    writeReg(transmit_holding_register, ch);
 
     c.pop_off();
 }
@@ -116,34 +116,34 @@ pub fn putcSync(ch: u8) void {
 /// called from both the top- and bottom-half.
 pub fn start() void {
     while (true) {
-        if (tx_w == tx_r) {
+        if (transmit_w == transmit_r) {
             // transmit buffer is empty.
             return;
         }
 
-        if ((readReg(LSR) & LSR_TX_IDLE) == 0) {
+        if ((readReg(line_status_register) & line_status_transmit_idle) == 0) {
             // the UART transmit holding register is full,
             // so we cannot give it another byte.
             // it will interrupt when it's ready for a new byte.
             return;
         }
 
-        const ch = tx_buf[tx_r % TX_BUF_SIZE];
-        tx_r += 1;
+        const ch = transmit_buf[transmit_r % transmit_buf_size];
+        transmit_r += 1;
 
         // maybe uartputc() is waiting for space in the buffer.
-        c.wakeup(&tx_r);
+        c.wakeup(&transmit_r);
 
-        writeReg(THR, ch);
+        writeReg(transmit_holding_register, ch);
     }
 }
 
 /// read one input character from the UART.
 /// return NotReady if none is waiting.
 pub fn getc() !usize {
-    if ((readReg(LSR) & LSR_RX_READY) != 0) {
+    if ((readReg(line_status_register) & line_status_receive_ready) != 0) {
         // input data is ready.
-        return readReg(RHR);
+        return readReg(receive_holding_register);
     } else {
         return error.NotReady;
     }
@@ -160,20 +160,20 @@ pub fn uartIntr() void {
     }
 
     // send buffered characters.
-    tx_lock.acquire();
+    transmit_lock.acquire();
     start();
-    tx_lock.release();
+    transmit_lock.release();
 }
 
-pub fn getRegPtr(reg: usize) *volatile u8 {
+fn getRegPtr(reg: usize) *volatile u8 {
     return @ptrFromInt(memlayout.UART0 + reg);
 }
 
-pub fn readReg(reg: usize) u8 {
+fn readReg(reg: usize) u8 {
     return getRegPtr(reg).*;
 }
 
-pub fn writeReg(reg: usize, value: u8) void {
+fn writeReg(reg: usize, value: u8) void {
     getRegPtr(reg).* = value;
 }
 
