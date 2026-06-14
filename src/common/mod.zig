@@ -3,3 +3,4 @@ pub const riscv = @import("riscv.zig");
 pub const stat = @import("stat.zig");
 pub const param = @import("param.zig");
 pub const ringbuf = @import("ringbuf.zig");
+pub const riscv.registers = @import("registers");
