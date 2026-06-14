@@ -1,6 +1,6 @@
 const std = @import("std");
 const SpinLock = @import("spinlock.zig").SpinLock;
-const registers = @import("registers.zig");
+const csr = @import("csr.zig");
 const pagetable = @import("pagetable.zig");
 const riscv = @import("common").riscv;
 const memlayout = @import("memlayout.zig");
@@ -33,7 +33,7 @@ pub fn init() void {
 }
 
 pub fn initHart() void {
-    registers.Stvec.write(@intFromPtr(&kernelvec));
+    csr.Stvec.write(@intFromPtr(&kernelvec));
 }
 
 //
@@ -41,21 +41,21 @@ pub fn initHart() void {
 // called from trampoline.S
 //
 export fn usertrap() void {
-    if (registers.Sstatus.isSet(.SPP)) {
+    if (csr.Sstatus.isSet(.SPP)) {
         @panic("usertrap: not from user mode");
     }
 
     // send interrupts and exceptions to kerneltrap(),
     // since we're now in the kernel.
-    registers.Stvec.write(@intFromPtr(&kernelvec));
+    csr.Stvec.write(@intFromPtr(&kernelvec));
 
     const process: *c.struct_proc = c.myproc();
     const epc = &process.trapframe[0].epc;
 
     // save user program counter.
-    epc.* = @intCast(registers.Sepc.read());
+    epc.* = @intCast(csr.Sepc.read());
 
-    const scause = registers.Scause.read();
+    const scause = csr.Scause.read();
     switch (scause.kind()) {
         .syscall => {
             if (c.killed(process) != 0) {
@@ -68,7 +68,7 @@ export fn usertrap() void {
 
             // an interrupt will change sepc, scause, and sstatus,
             // so enable only now that we're done with those registers.
-            registers.interrupts_on();
+            csr.interrupts_on();
 
             c.syscall();
         },
@@ -77,7 +77,7 @@ export fn usertrap() void {
         },
         .exception => {
             print("usertrap(): unexpected scause {x} pid={d}\n", .{ scause.raw(), process.pid });
-            print("            sepc={x} stval={x}\n", .{ registers.Sepc.read(), registers.Stval.read() });
+            print("            sepc={x} stval={x}\n", .{ csr.Sepc.read(), csr.Stval.read() });
             c.setkilled(process);
         },
     }
@@ -106,16 +106,16 @@ export fn usertrapret() void {
     // we're about to switch the destination of traps from
     // kerneltrap() to usertrap(), so turn off interrupts until
     // we're back in user space, where usertrap() is correct.
-    registers.interrupts_off();
+    csr.interrupts_off();
 
     // send syscalls, interrupts, and exceptions to uservec in trampoline.S
     const trampoline_uservec = memlayout.TRAMPOLINE + (uservecAddr - trampolineAddr);
-    registers.Stvec.write(trampoline_uservec);
+    csr.Stvec.write(trampoline_uservec);
 
     // set up trapframe values that uservec will need when
     // the process next traps into the kernel.
     const trapframe: *c.struct_trapframe = process.trapframe;
-    trapframe.kernel_satp = registers.Satp.read(); // kernel page table
+    trapframe.kernel_satp = csr.Satp.read(); // kernel page table
     trapframe.kernel_sp = process.kstack + riscv.pagesize; // process's kernel stack
     trapframe.kernel_trap = @intFromPtr(&usertrap);
     trapframe.kernel_hartid = riscv.r_tp(); // hartid for cpuid()
@@ -124,11 +124,11 @@ export fn usertrapret() void {
     // to get to user space.
 
     // set S Previous Privilege mode to User.
-    registers.Sstatus.clear(.SPP); // clear SPP to 0 for user mode
-    registers.Sstatus.set(.SPIE); // enable interrupts in user mode
+    csr.Sstatus.clear(.SPP); // clear SPP to 0 for user mode
+    csr.Sstatus.set(.SPIE); // enable interrupts in user mode
 
     // set S Exception Program Counter to the saved user pc.
-    registers.Sepc.write(trapframe.epc);
+    csr.Sepc.write(trapframe.epc);
 
     // tell trampoline.S the user page table to switch to.
     const satp = pagetable.MAKE_SATP(process.pagetable);
@@ -143,14 +143,14 @@ export fn usertrapret() void {
 // interrupts and exceptions from kernel code go here via kernelvec,
 // on whatever the current kernel stack is.
 export fn kerneltrap() void {
-    const sepc = registers.Sepc.read();
-    const sstatus = registers.Sstatus.read();
-    const scause = registers.Scause.read();
+    const sepc = csr.Sepc.read();
+    const sstatus = csr.Sstatus.read();
+    const scause = csr.Scause.read();
 
-    if (!registers.Sstatus.isSet(.SPP)) {
+    if (!csr.Sstatus.isSet(.SPP)) {
         @panic("kerneltrap: not from supervisor mode");
     }
-    if (registers.interrupts_is_on()) {
+    if (csr.interrupts_is_on()) {
         @panic("kerneltrap: interrupts enabled");
     }
 
@@ -158,7 +158,7 @@ export fn kerneltrap() void {
         handleDeviceInterrupt(scause);
     } else {
         print("scause {x}\n", .{scause.raw()});
-        print("sepc={x} stval={x}\n", .{ sepc, registers.r_stval() });
+        print("sepc={x} stval={x}\n", .{ sepc, csr.Stval.read() });
         @panic("kerneltrap");
     }
 
@@ -169,8 +169,8 @@ export fn kerneltrap() void {
 
     // the yield() may have caused some traps to occur,
     // so restore trap registers for use by kernelvec.S's sepc instruction.
-    registers.Sepc.write(sepc);
-    registers.Sstatus.write(sstatus);
+    csr.Sepc.write(sepc);
+    csr.Sstatus.write(sstatus);
 }
 
 fn clockintr() void {
@@ -185,7 +185,7 @@ fn clockintr() void {
 // returns 2 if timer interrupt,
 // 1 if other device,
 // 0 if not recognized.
-fn handleDeviceInterrupt(scause: registers.Scause) void {
+fn handleDeviceInterrupt(scause: csr.Scause) void {
     switch (scause) {
         .supervisorExternalInterrupt => {
             // this is a supervisor external interrupt, via PLIC.
@@ -214,7 +214,7 @@ fn handleDeviceInterrupt(scause: registers.Scause) void {
             }
             // acknowledge the software interrupt by clearing
             // the SSIP bit in sip.
-            registers.Sip.clear(.SSIP);
+            csr.Sip.clear(.SSIP);
         },
         else => return,
     }

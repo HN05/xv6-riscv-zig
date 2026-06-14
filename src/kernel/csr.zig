@@ -1,25 +1,23 @@
 const std = @import("std");
 const registers = @import("common").riscv.registers;
-const CsrSimple = registers.Register;
+const Csr = registers.Register;
 const CsrWithFlags = registers.RegisterWithFlags;
 
+pub const Mhartid = Csr("mhartid");
 
-
-pub const Mhartid = CsrSimple("mhartid");
-
-pub const Mepc = CsrSimple("mepc");
+pub const Mepc = Csr("mepc");
 
 pub const MstatusFlags = enum(usize) {
-    MPP_M = 3 << 11,
-    MPP_S = 1 << 11,
-    MPP_U = 0 << 11,
-    MIE = 1 << 3, // machine-mode interrupt enable.
+    Machine_prev_priv_mach = 3 << 11,
+    Machine_prev_priv_sup = 1 << 11,
+    Machine_prev_priv_user = 0 << 11,
+    Machine_interrupts_enable = 1 << 3,
 };
 
-pub const MstatusCsr = CsrWithFlags("mstatus", MstatusFlags);
-
+pub const Mstatus = CsrWithFlags("mstatus", MstatusFlags);
+ 
 pub const SstatusFlags = enum(usize) {
-    SPP = 1 << 8, // Previous mode, 1=Supervisor, 0=User
+    SPP = 1 << 8, // Previous mode, 1=Supervisor, 0=User 
     SPIE = 1 << 5, // Supervisor Previous Interrupt Enable
     UPIE = 1 << 4, // User Previous Interrupt Enable
     SIE = 1 << 1, // Supervisor Interrupt Enable
@@ -59,8 +57,7 @@ pub const SieFlags = enum(usize) {
     SSIE = 1 << 1, // software
 };
 
-pub const Sie = CsrWithFlags("sie", SipFlags);
-
+pub const Sie = CsrWithFlags("sie", SieFlags);
 
 // Machine-mode Interrupt Enable
 pub const MieFlags = enum(usize) {
@@ -75,32 +72,32 @@ pub const Mie = CsrWithFlags("mie", MieFlags);
 // supervisor exception program counter, holds the
 // instruction address to which a return from
 // exception will go.
-pub const Sepc = CsrSimple("sepc");
+pub const Sepc = Csr("sepc");
 
 
 // Machine Exception Delegation
-pub const Medeleg = CsrSimple("medeleg");
+pub const Medeleg = Csr("medeleg");
 
 // Machine Interrupt Delegation
-pub const Mideleg = CsrSimple("mideleg");
+pub const Mideleg = Csr("mideleg");
 
 // Supervisor Trap-Vector Base Address
 // low two bits are mode.
-pub const Stvec = CsrSimple("stvec");
+pub const Stvec = Csr("stvec");
 
 // Machine-mode interrupt vector
-pub const Mtvec = CsrSimple("mtvec");
+pub const Mtvec = Csr("mtvec");
 
 // Physical Memory Protection
-pub const Pmpcfg0 = CsrSimple("pmpcfg0");
+pub const Pmpcfg0 = Csr("pmpcfg0");
 
-pub const Pmpaddr0 = CsrSimple("pmpaddr0");
+pub const Pmpaddr0 = Csr("pmpaddr0");
 
 // supervisor address translation and protection;
 // holds the address of the page table.
-pub const Satp = CsrSimple("satp");
+pub const Satp = Csr("satp");
 
-pub const Mscratch = CsrSimple("mscratch");
+pub const Mscratch = Csr("mscratch");
 
 // Supervisor Trap Cause
 pub const Scause = enum(usize) {
@@ -220,11 +217,11 @@ pub const Scause = enum(usize) {
 
 
 // Supervisor Trap Value
-pub const Stval = CsrSimple("stval");
+pub const Stval = Csr("stval");
 
 // Machine-mode Counter-Enable
-pub const Mcounteren = CsrSimple("mcounteren");
+pub const Mcounteren = Csr("mcounteren");
 
 // machine-mode cycle counter
-pub const Time = CsrSimple("time");
+pub const Time = Csr("time");
 

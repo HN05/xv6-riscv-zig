@@ -1,7 +1,7 @@
 // Much of this code comes from https://github.com/binarycraft007/xv6-riscv-zig
 
 const std = @import("std");
-const registers = @import("registers.zig");
+const csr = @import("csr.zig");
 const riscv = @import("common").riscv;
 const main = @import("main.zig");
 const param = @import("common").param;
@@ -23,36 +23,34 @@ export var stack0 align(16) = [_]u8{0} ** stack_size;
 /// entry.S jumps here in machine mode on stack0.
 pub export fn start() void {
     // set M Previous Privilege mode to Supervisor, for mret.
-    var mstatus = registers.r_mstatus();
-    mstatus &= ~@as(usize, registers.MSTATUS_MPP_MASK);
-    mstatus |= @intFromEnum(registers.MSTATUS.MPP_S);
-    registers.w_mstatus(mstatus);
+    csr.Mstatus.clear(.Machine_prev_priv_mach); // clears all mpp bits
+    csr.Mstatus.set(.Machine_prev_priv_sup);
 
     // set M Exception Program Counter to kmain, for mret.
     // requires code_model = .medium
-    registers.w_mepc(@intFromPtr(&main.kmain));
+    csr.Mepc.write(@intFromPtr(&main.kmain));
 
     // disable paging for now.
-    registers.w_satp(0);
+    csr.Satp.write(0);
 
     // delegate all interrupts and exceptions to supervisor mode.
-    registers.w_medeleg(@as(usize, 0xffff));
-    registers.w_mideleg(@as(usize, 0xffff));
-    registers.w_sie(registers.r_sie() |
-        @intFromEnum(registers.SIE.SEIE) |
-        @intFromEnum(registers.SIE.STIE) |
-        @intFromEnum(registers.SIE.SSIE));
+    csr.Medeleg.write(@as(usize, 0xffff));
+    csr.Mideleg.write(@as(usize, 0xffff));
+
+    csr.Sie.set(.SEIE);
+    csr.Sie.set(.SSIE);
+    csr.Sie.set(.STIE);
 
     // configure Physical Memory Protection to give supervisor mode
     // access to all of physical memory.
-    registers.w_pmpaddr0(@as(usize, 0x3fffffffffffff));
-    registers.w_pmpcfg0(@as(usize, 0xf));
+    csr.Pmpaddr0.write(@as(usize, 0x3fffffffffffff));
+    csr.Pmpcfg0.write(@as(usize, 0xf));
 
     // ask for clock interrupts.
     timerinit();
 
     // keep each CPU's hartid in its tp register, for cpuid().
-    const id = registers.r_mhartid();
+    const id = csr.Mhartid.read();
     riscv.w_tp(id);
 
     asm volatile ("mret");
@@ -65,7 +63,7 @@ pub export fn start() void {
 /// devintr() in trap.c.
 pub fn timerinit() void {
     // each CPU has a separate source of timer interrupts.
-    const id = registers.r_mhartid();
+    const id = csr.Mhartid.read();
 
     // ask the CLINT for a timer interrupt.
     const interval = 1000000; // cycles; about 1/10th second in qemu.
@@ -78,16 +76,16 @@ pub fn timerinit() void {
     var scratch = timer_scratch[id];
     scratch[3] = @intFromPtr(memlayout.CLINT_MTIMECMP(id));
     scratch[4] = interval;
-    registers.w_mscratch(@intFromPtr(&scratch));
+    csr.Mscratch.write(@intFromPtr(&scratch));
 
     // set the machine-mode trap handler.
-    registers.w_mtvec(@intFromPtr(&timervec));
+    csr.Mtvec.write(@intFromPtr(&timervec));
 
     // enable machine-mode interrupts.
-    registers.w_mstatus(registers.r_mstatus() | @intFromEnum(registers.MSTATUS.MIE));
+    csr.Mstatus.set(.Machine_interrupts_enable);
 
     // enable machine-mode timer interrupts.
-    registers.w_mie(registers.r_mie() | @intFromEnum(registers.MIE.MTIE));
+    csr.Mie.set(.MTIE);
 }
 
 pub fn panic(
