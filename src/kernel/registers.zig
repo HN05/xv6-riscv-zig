@@ -5,9 +5,9 @@ const CsrWithFlags = registers.RegisterWithFlags;
 
 
 
-const Mhartid = CsrSimple("mhartid");
+pub const Mhartid = CsrSimple("mhartid");
 
-const Mepc = CsrSimple("mepc");
+pub const Mepc = CsrSimple("mepc");
 
 pub const MstatusFlags = enum(usize) {
     MPP_M = 3 << 11,
@@ -16,7 +16,7 @@ pub const MstatusFlags = enum(usize) {
     MIE = 1 << 3, // machine-mode interrupt enable.
 };
 
-const MstatusCsr = CsrWithFlags("mstatus", MstatusFlags);
+pub const MstatusCsr = CsrWithFlags("mstatus", MstatusFlags);
 
 pub const SstatusFlags = enum(usize) {
     SPP = 1 << 8, // Previous mode, 1=Supervisor, 0=User
