@@ -29,17 +29,17 @@ pub const SstatusFlags = enum(usize) {
 pub const Sstatus = CsrWithFlags("sstatus", SstatusFlags);
 
 // enable device interrupts
-pub inline fn interrupts_on() void {
+pub fn interrupts_on() void {
     Sstatus.set(.SIE);
 }
 
 // disable device interrupts
-pub inline fn interrupts_off() void {
+pub fn interrupts_off() void {
     Sstatus.clear(.SIE);
 }
 
 // are device interrupts enabled?
-pub inline fn interrupts_is_on() bool {
+pub fn interrupts_is_on() bool {
     return Sstatus.isSet(.SIE);
 }
 
