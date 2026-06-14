@@ -1,5 +1,7 @@
 const std = @import("std");
-
+const registers = @import("common").riscv.registers;
+const CsrSimple = registers.Register;
+const CsrWithFlags = registers.RegisterWithFlags;
 
 
 
