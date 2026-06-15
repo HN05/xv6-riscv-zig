@@ -1,5 +1,5 @@
 const std = @import("std");
-const CSpinlock = @import("spinlock.zig").CSpinlock;
+const SpinLock = @import("spinlock.zig").SpinLock;
 const memlayout = @import("../kernel/memlayout.zig");
 const pagesize = @import("common").riscv.pagesize;
 const assert = std.debug.assert;
@@ -12,12 +12,11 @@ const Block = extern struct {
     next: ?*Block,
 };
 
-var lock: CSpinlock = undefined;
+var lock: SpinLock = .{ .name = "kalloc" };
 var freelist: ?*Block = null;
 
 pub export fn kinit() void {
     log.info("setting up page allocator", .{});
-    lock.init("kalloc");
     freerange(@ptrCast(end), @ptrFromInt(memlayout.PHYSTOP));
 }
 
@@ -55,11 +54,14 @@ pub fn freePage(pa: PagePtr) !void {
     const end_u: usize = @intFromPtr(end);
     if (pa_u < end_u) return error.AddressTooLow;
     if (pa_u >= memlayout.PHYSTOP) return error.AddressTooHigh;
-    // // Fill with junk to catch dangling refs.
+
+    // Fill with junk to catch dangling refs.
     @memset(pa[0..pagesize], 1);
-    const b: *Block = @alignCast(@ptrCast(pa));
-    lock.acquireLock();
-    defer lock.releaseLock();
+    const b: *Block = @ptrCast(@alignCast(pa));
+
+    lock.acquire();
+    defer lock.release();
+
     b.next = freelist;
     freelist = b;
 }
@@ -67,8 +69,9 @@ pub fn freePage(pa: PagePtr) !void {
 pub const PagePtr = *align(pagesize) [pagesize]u8;
 
 pub fn allocPage() ?PagePtr {
-    lock.acquireLock();
-    defer lock.releaseLock();
+    lock.acquire();
+    defer lock.release();
+
     const r_o = freelist;
     if (r_o) |r| {
         freelist = r.next;
@@ -80,7 +83,7 @@ pub fn allocPage() ?PagePtr {
         // log.warn("out of memory", .{});
         return null;
     }
-    const ptr: [*]align(pagesize) u8 = @alignCast(@ptrCast(r_o.?));
+    const ptr: [*]align(pagesize) u8 = @ptrCast(@alignCast(r_o.?));
     return ptr[0..pagesize];
 }
 

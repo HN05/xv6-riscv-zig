@@ -10,7 +10,6 @@ const log_root = @import("klog.zig");
 const riscv = @import("common").riscv;
 const Atomic = std.atomic.Atomic;
 const Kalloc = @import("kalloc.zig");
-const RingbufMan = @import("ringbuf.zig");
 const plic = @import("plic.zig");
 const console = @import("console.zig");
 const trap = @import("trap.zig");
@@ -35,7 +34,6 @@ pub fn kmain() void {
         c.iinit(); // inode table
         c.fileinit(); // file table
         c.virtio_disk_init(); // emulated hard disk
-        RingbufMan.init();
         c.userinit(); // first user process
         started.store(true, .seq_cst);
     } else {

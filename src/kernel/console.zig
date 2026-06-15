@@ -10,7 +10,7 @@
 //
 
 const std = @import("std");
-const CSpinlock = @import("spinlock.zig").CSpinlock;
+const SpinLock = @import("spinlock.zig").SpinLock;
 const uart = @import("uart.zig");
 
 const c = @cImport({
@@ -36,7 +36,7 @@ fn control(char: u8) u8 {
 
 const input_buf_size = 128;
 const Console = struct {
-    lock: CSpinlock = undefined,
+    lock: SpinLock = .{ .name = "console" },
 
     buffer: [input_buf_size]u8 = undefined,
 
@@ -56,19 +56,17 @@ const Console = struct {
 var console: Console = .{};
 
 pub fn init() void {
-    console.lock.init("console lock");
-
     uart.init();
     
     const consoleDevice = &c.devsw[c.CONSOLE];
-    consoleDevice.read = &consoleRead;
-    consoleDevice.write = &consoleWrite;
+    consoleDevice.read = &read;
+    consoleDevice.write = &write;
 }
 
 //
 // user write()s to the console go here.
 //
-fn consoleWrite(user_src: c_int, src: c.uint64, n: c_int) callconv(.c) c_int {
+fn write(user_src: c_int, src: c.uint64, n: c_int) callconv(.c) c_int {
     var i: c.uint64 = 0;
 
     while (i < n) : (i += 1) {
@@ -91,15 +89,15 @@ fn consoleWrite(user_src: c_int, src: c.uint64, n: c_int) callconv(.c) c_int {
 // user_dist indicates whether dst is a user
 // or kernel address.
 //
-fn consoleRead(userDestination: c_int, start: c.uint64, n: c_int) callconv(.c) c_int {
+fn read(userDestination: c_int, start: c.uint64, n: c_int) callconv(.c) c_int {
     const target = n;
     var character: u8 = undefined;
     var characterBuffer: u8 = undefined;
     var destination = start;
     var charsLeft = n;
 
-    console.lock.acquireLock();
-    defer console.lock.releaseLock();
+    console.lock.acquire();
+    defer console.lock.release();
 
     while (charsLeft > 0) {
         // wait until interrupt handler has put some
@@ -108,7 +106,7 @@ fn consoleRead(userDestination: c_int, start: c.uint64, n: c_int) callconv(.c) c
             if (c.killed(c.myproc()) != 0) {
                 return -1;
             }
-            c.sleep(&console.readIndex, @ptrCast(&console.lock.lock));
+            console.lock.sleep(&console.readIndex);
         }
 
         character = console.buffer[console.readIndex % input_buf_size];
@@ -150,9 +148,9 @@ fn consoleRead(userDestination: c_int, start: c.uint64, n: c_int) callconv(.c) c
 //
 //
 
-pub fn consoleInterrupt(character: u8) void {
-    console.lock.acquireLock();
-    defer console.lock.releaseLock();
+pub fn interrupt(character: u8) void {
+    console.lock.acquire();
+    defer console.lock.release();
 
     switch (character) {
         control('P') => { // print process list

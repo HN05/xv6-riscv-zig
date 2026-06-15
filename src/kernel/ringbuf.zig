@@ -10,7 +10,7 @@ const c = @cImport({
 });
 const com = @import("common");
 const pagesize = com.riscv.pagesize;
-const CSpinlock = @import("spinlock.zig").CSpinlock;
+const SpinLock = @import("spinlock.zig").SpinLock;
 const kalloc = @import("kalloc.zig");
 const PagePtr = kalloc.PagePtr;
 const Book = com.ringbuf.Book;
@@ -25,14 +25,9 @@ const MAX_RINGBUFS = com.ringbuf.MAX_RINGBUFS;
 const RingbufManager = @This();
 
 /// Global spinlock to protect the ringbuf's array
-var spinlock: CSpinlock = undefined;
+var spinlock: SpinLock = .{ .name = "ringbuf_man"};
 /// Global array of ringbufs
 var ringbufs: [MAX_RINGBUFS]Ringbuf = [_]Ringbuf{.{}} ** MAX_RINGBUFS;
-
-/// Set up ringbuf manager
-pub fn init() void {
-    spinlock.init("ringbuf_man");
-}
 
 const Owner = extern struct {
     proc: ?*c.struct_proc = null,
@@ -157,8 +152,8 @@ fn findRingbufByName(name: []const u8) ?*Ringbuf {
 ///  We use the process's top_free_uvm_pg to find a slot in the userspace.
 ///  We map the ringbuf twice contiguously, and the book page right under it.
 fn ringbuf(name_str: [*:0]const u8, op: Rb.Op, addr_va: *?*align(pagesize) anyopaque) Rb.RingbufError!void {
-    spinlock.acquireLock();
-    defer spinlock.releaseLock();
+    spinlock.acquire();
+    defer spinlock.release();
 
     const name: []const u8 = std.mem.span(name_str);
     if (name.len > MAX_NAME_LEN or name.len == 0) return error.BadNameLength;
@@ -334,8 +329,8 @@ fn find_owned_ringbuf(proc: *c.struct_proc) ?*Ringbuf {
 }
 
 export fn ringbuf_disown_all(proc: *c.struct_proc) void {
-    spinlock.acquireLock();
-    defer spinlock.releaseLock();
+    spinlock.acquire();
+    defer spinlock.release();
     for (&ringbufs) |*rb| {
         rb.disownIfOwned(proc);
     }

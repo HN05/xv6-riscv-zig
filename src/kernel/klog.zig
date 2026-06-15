@@ -1,7 +1,7 @@
 const std = @import("std");
 const mem = std.mem;
 const fmt = std.fmt;
-const CSpinlock = @import("spinlock.zig").CSpinlock;
+const SpinLock = @import("spinlock.zig").SpinLock;
 const common = @import("common");
 const Color = common.color.Color;
 
@@ -27,7 +27,7 @@ const console = struct {
     }
 };
 
-var lock: CSpinlock = CSpinlock{ .lock = .{} };
+var lock: SpinLock = .{ .name = "klog" };
 pub var locking: bool = true;
 pub export var panicked: bool = false;
 
@@ -48,14 +48,13 @@ pub fn klogFn(
 ) void {
     @setRuntimeSafety(false);
     const need_lock = locking;
-    if (need_lock) lock.acquireLock();
+    if (need_lock) lock.acquire();
+    defer if (need_lock) lock.release();
 
     const scope_prefix = "(" ++ comptime Color.dim.ttyStr() ++ @tagName(scope) ++ Color.reset.ttyStr() ++ ") ";
 
     const prefix = scope_prefix ++ "[" ++ comptime logLevelColor(level).ttyStr() ++ level.asText() ++ Color.reset.ttyStr() ++ "]: ";
     print(prefix ++ format ++ "\n", args);
-
-    if (need_lock) lock.releaseLock();
 }
 
 export fn panic(s: [*:0]u8) noreturn {
@@ -82,8 +81,8 @@ pub fn print(comptime format: []const u8, args: anytype) void {
 pub export fn printf(format: [*:0]const u8, ...) void {
     @setRuntimeSafety(false);
     const need_lock = locking;
-    if (need_lock) lock.acquireLock();
-    defer if (need_lock) lock.releaseLock();
+    if (need_lock) lock.acquire();
+    defer if (need_lock) lock.release();
 
     if (std.mem.span(format).len == 0) @panic("null fmt");
 

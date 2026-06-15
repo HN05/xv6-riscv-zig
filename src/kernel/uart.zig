@@ -1,7 +1,7 @@
 // Much of this code comes from https://github.com/binarycraft007/xv6-riscv-zig
 
 const memlayout = @import("memlayout.zig");
-const CSpinlock = @import("spinlock.zig").CSpinlock;
+const SpinLock = @import("spinlock.zig").SpinLock;
 const log_root = @import("klog.zig");
 const console = @import("console.zig");
 
@@ -40,7 +40,7 @@ const line_status_transmit_idle = 1 << 5; // THR can accept another character to
 
 const transmit_buf_size = 32;
 
-var transmit_lock: CSpinlock = undefined;
+var transmit_lock: SpinLock = .{ .name = "uart transmit lock" };
 var transmit_buf: [transmit_buf_size]u8 = [_]u8{0} ** transmit_buf_size;
 var transmit_w: u64 = 0; // write next to uart_tx_buf[uart_tx_w % UART_TX_BUF_SIZE]
 var transmit_r: u64 = 0; // read next from uart_tx_buf[uart_tx_r % UART_TX_BUF_SIZE]
@@ -48,7 +48,6 @@ var transmit_r: u64 = 0; // read next from uart_tx_buf[uart_tx_r % UART_TX_BUF_S
 pub const Error = error{NotReady};
 
 pub fn init() void {
-    transmit_lock.init("tx lock");
     // disable interrupts.
     writeReg(interrupt_enable_register, 0x00);
 
@@ -79,15 +78,15 @@ pub fn init() void {
 // from interrupts; it's only suitable for use
 // by write().
 pub fn putCharacter(ch: u8) void {
-    transmit_lock.acquireLock();
-    defer transmit_lock.releaseLock();
+    transmit_lock.acquire();
+    defer transmit_lock.release();
 
     if (log_root.panicked) while (true) {};
 
     while (transmit_w == transmit_r + transmit_buf_size) {
         // buffer is full.
         // wait for uartstart() to open up space in the buffer.
-        c.sleep(&transmit_r, @ptrCast(&transmit_lock.lock));
+        transmit_lock.sleep(&transmit_r);
     }
     transmit_buf[transmit_w % transmit_buf_size] = ch;
     transmit_w += 1;
@@ -156,13 +155,14 @@ pub fn interrupt() void {
     // read and process incoming characters.
     while (true) {
         const character = getCharacter() catch break;
-        console.consoleInterrupt(character);
+        console.interrupt(character);
     }
 
     // send buffered characters.
-    transmit_lock.acquireLock();
+    transmit_lock.acquire();
+    defer transmit_lock.release();
+
     start();
-    transmit_lock.releaseLock();
 }
 
 fn getRegPtr(reg: usize) *volatile u8 {

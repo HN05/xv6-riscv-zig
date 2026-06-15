@@ -43,7 +43,7 @@ pub const SpinLock = struct {
     name: ?[]const u8 = null,
     cpu: ?*c.struct_cpu = null,
 
-    pub fn acquire(self: SpinLock) void {
+    pub fn acquire(self: *SpinLock) void {
         push_off(); // disable interrupts to avoid deadlock.
         if (self.isHolding()) {
             @panic("acquire");
@@ -54,17 +54,45 @@ pub const SpinLock = struct {
 
         self.cpu = c.mycpu();
     }
-    pub fn release(self: SpinLock) void {
+
+    pub fn release(self: *SpinLock) void {
         if (!self.isHolding()) {
             @panic("release");
         }
 
-        self.cpu = 0;
+        self.cpu = null;
         self.isLocked.store(false, .release);
         pop_off();
     }
-    pub fn isHolding(self: SpinLock) bool {
-        return (self.isLocked and self.cpu == c.mycpu());
+
+    pub fn isHolding(self: *SpinLock) bool {
+        return (self.isLocked.raw and self.cpu == c.mycpu());
+    }
+
+    // Atomically release lock and sleep on chan.
+    // Reacquires lock when awakened.
+    pub fn sleep(self: *SpinLock, channel: *anyopaque) void {
+        const process = c.myproc();
+
+        // Must acquire p->lock in order to
+        // change p->state and then call sched.
+        // Once we hold p->lock, we can be
+        // guaranteed that we won't miss any wakeup
+        // (wakeup locks p->lock),
+        // so it's okay to release lk.
+        c.acquire(&process.*.lock);
+        self.release();
+
+        // Go to sleep.
+        process.*.chan = channel;
+        process.*.state = c.SLEEPING;
+
+        c.sched();
+
+        // Tidy up.
+        process.*.chan = null;
+        c.release(&process.*.lock);
+        self.acquire();
     }
 };
 
