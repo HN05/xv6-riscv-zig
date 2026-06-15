@@ -293,7 +293,7 @@ fn ringbuf(name_str: [*:0]const u8, op: Rb.Op, addr_va: *?*align(pagesize) anyop
     }
 }
 
-export fn sys_ringbuf() c.uint64 {
+pub fn syscall() u64 {
     c.begin_op();
     defer c.end_op();
 

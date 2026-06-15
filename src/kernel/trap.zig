@@ -1,5 +1,4 @@
 const std = @import("std");
-const CSpinlock = @import("spinlock.zig").CSpinlock;
 const csr = @import("csr.zig");
 const pagetable = @import("pagetable.zig");
 const riscv = @import("common").riscv;
@@ -7,6 +6,7 @@ const memlayout = @import("memlayout.zig");
 const uart = @import("uart.zig");
 const print = @import("klog.zig").print;
 const plic = @import("plic.zig");
+const ticks = @import("ticks.zig").ticks;
 
 const c = @cImport({
     @cInclude("kernel/types.h");
@@ -18,19 +18,11 @@ const c = @cImport({
     @cInclude("kernel/defs.h");
 });
 
-export var ticks: c.uint = 0;
-
-export var tickslock: CSpinlock = undefined;
-
 extern const trampoline: anyopaque;
 extern const uservec: anyopaque;
 extern const userret: anyopaque;
 
 extern fn kernelvec() void;
-
-pub fn init() void {
-    tickslock.init("ticks lock");
-}
 
 pub fn initHart() void {
     csr.Stvec.write(@intFromPtr(&kernelvec));
@@ -175,12 +167,6 @@ export fn kerneltrap() void {
     csr.Sstatus.write(sstatus);
 }
 
-fn clockintr() void {
-    tickslock.acquireLock();
-    ticks += 1;
-    c.wakeup(&ticks);
-    tickslock.releaseLock();
-}
 
 // check if it's an external interrupt or software interrupt,
 // and handle it.
@@ -212,7 +198,7 @@ fn handleDeviceInterrupt(scause: csr.Scause) void {
             // software interrupt from a machine-mode timer interrupt,
             // forwarded by timervec in kernelvec.S.
             if (c.cpuid() == 0) {
-                clockintr();
+                ticks.incrementSafe();
             }
             // acknowledge the software interrupt by clearing
             // the SSIP bit in sip.

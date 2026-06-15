@@ -1,91 +1,62 @@
-#include "types.h"
-#include "riscv.h"
-#include "defs.h"
-#include "param.h"
-#include "memlayout.h"
-#include "spinlock.h"
-#include "proc.h"
+const std = @import("std");
+const log = @import("klog.zig");
+const sysargs = @import("sysargs.zig");
+const ticks = @import("ticks.zig").ticks;
 
-uint64
-sys_exit(void)
-{
-  int n;
-  argint(0, &n);
-  exit(n);
-  return 0;  // not reached
+const c = @cImport({
+    @cInclude("kernel/types.h");
+    @cInclude("kernel/param.h");
+    @cInclude("kernel/memlayout.h");
+    @cInclude("kernel/riscv.h");
+    @cInclude("kernel/spinlock.h");
+    @cInclude("kernel/proc.h");
+    @cInclude("kernel/defs.h");
+});
+
+pub fn sys_exit() u64 {
+    const exitCode = sysargs.int(.a0);
+    c.exit(@intCast(exitCode));
+    unreachable;
 }
 
-uint64
-sys_getpid(void)
-{
-  return myproc()->pid;
+pub fn sys_getpid() u64 {
+    return @intCast(c.myproc().*.pid);
 }
 
-uint64
-sys_fork(void)
-{
-  return fork();
+pub fn sys_fork() u64 {
+    return @intCast(c.fork());
 }
 
-uint64
-sys_wait(void)
-{
-  uint64 p;
-  argaddr(0, &p);
-  return wait(p);
+pub fn sys_wait() u64 {
+    const address = sysargs.int(.a0);
+    return @intCast(c.wait(@intCast(address)));
 }
 
-uint64
-sys_sbrk(void)
-{
-  uint64 addr;
-  int n;
+pub fn sys_sbrk() u64 {
+   const requestedBytes = sysargs.int(.a0);
+    const oldSize = c.myproc().*.sz;
 
-  argint(0, &n);
-  addr = myproc()->sz;
-  if(growproc(n) < 0)
-    return -1;
-  return addr;
-}
-
-uint64
-sys_sleep(void)
-{
-  int n;
-  uint ticks0;
-
-  argint(0, &n);
-  acquire(&tickslock);
-  ticks0 = ticks;
-  while(ticks - ticks0 < n){
-    if(killed(myproc())){
-      release(&tickslock);
-      return -1;
+    if (c.growproc(@intCast(requestedBytes)) < 0) {
+        return sysargs.errorVal;
     }
-    sleep(&ticks, &tickslock);
-  }
-  release(&tickslock);
-  return 0;
+    return oldSize;
 }
 
-uint64
-sys_kill(void)
-{
-  int pid;
+pub fn sys_sleep() u64 {
+    const sleepTicks = sysargs.int(.a0);
 
-  argint(0, &pid);
-  return kill(pid);
+    ticks.sleepFor(sleepTicks) catch {
+        return sysargs.errorVal;
+    };
+
+    return 0;
 }
 
-// return how many clock tick interrupts have occurred
-// since start.
-uint64
-sys_uptime(void)
-{
-  uint xticks;
-
-  acquire(&tickslock);
-  xticks = ticks;
-  release(&tickslock);
-  return xticks;
+pub fn sys_kill() u64 {
+    return @intCast(c.kill(@intCast(sysargs.int(.a0))));
 }
+
+pub fn sys_uptime() u64 {
+    return ticks.readSafe();
+}
+

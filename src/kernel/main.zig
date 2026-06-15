@@ -25,7 +25,6 @@ pub fn kmain() void {
         c.kvminit(); // create kernel page table
         c.kvminithart(); // turn on paging
         c.procinit(); // process table
-        trap.init(); // trap vectors
         trap.initHart(); // install kernel trap vector
         plic.init(); // set up interrupt controller
         plic.initHart(); // ask PLIC for device interrupts

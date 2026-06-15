@@ -140,8 +140,6 @@ int             fetchaddr(uint64, uint64*);
 void            syscall();
 
 // trap.c
-extern uint     ticks;
-extern struct spinlock tickslock;
 void            usertrapret(void);
 
 // vm.c
