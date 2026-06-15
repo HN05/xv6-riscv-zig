@@ -124,7 +124,7 @@ export fn usertrapret() void {
     // to get to user space.
 
     // set S Previous Privilege mode to User.
-    csr.Sstatus.update()
+    csr.Sstatus.chain()
         .clear(.SPP) // clear SPP to 0 for user mode
         .set(.SPIE) // enable interrupts in user mode
         .commit();

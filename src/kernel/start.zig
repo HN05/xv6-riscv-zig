@@ -36,7 +36,7 @@ pub export fn start() void {
     csr.Medeleg.setAllFlags();
     csr.Mideleg.setAllFlags();
 
-    csr.Sie.update()
+    csr.Sie.chain()
         .set(.SEIE)
         .set(.SSIE)
         .set(.STIE)
@@ -45,7 +45,7 @@ pub export fn start() void {
     // configure Physical Memory Protection to give supervisor mode
     // access to all of physical memory.
     csr.Pmpaddr0.allowAllPhysicalMemory();
-    csr.Pmpcfg0.update()
+    csr.Pmpcfg0.chain()
         .set(.read)
         .set(.write)
         .set(.execute)

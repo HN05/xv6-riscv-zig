@@ -34,30 +34,30 @@ pub fn CsrWithFlags(comptime name: []const u8, comptime Flag: type) type {
         const Self = @This();
         pub const registerName = name;
         pub const flags = FlagOps(Flag);
-        pub const Update = struct {
+        pub const Chain = struct {
             value: usize,
 
-            pub fn set(self: Update, flag: Flag) Update {
+            pub fn set(self: Chain, flag: Flag) Chain {
                 return .{ .value = flags.set(flag, self.value) };
             }
 
-            pub fn clear(self: Update, flag: Flag) Update {
+            pub fn clear(self: Chain, flag: Flag) Chain {
                 return .{ .value = flags.clear(flag, self.value) };
             }
 
-            pub fn setAll(self: Update) Update {
+            pub fn setAll(self: Chain) Chain {
                 return .{ .value = self.value | flags.allFlagsMask() };
             }
 
-            pub fn clearAll(self: Update) Update {
+            pub fn clearAll(self: Chain) Chain {
                 return .{ .value = self.value & ~flags.allFlagsMask() };
             }
 
-            pub fn commit(self: Update) void {
+            pub fn commit(self: Chain) void {
                 Self.write(self.value);
             }
 
-            pub fn valueOf(self: Update) usize {
+            pub fn valueOf(self: Chain) usize {
                 return self.value;
             }
         };
@@ -75,24 +75,24 @@ pub fn CsrWithFlags(comptime name: []const u8, comptime Flag: type) type {
             );
         }
 
-        pub fn update() Update {
+        pub fn chain() Chain {
             return .{ .value = read() };
         }
 
         pub fn set(flag: Flag) void {
-            update().set(flag).commit();
+            chain().set(flag).commit();
         }
 
         pub fn clear(flag: Flag) void {
-            update().clear(flag).commit();
+            chain().clear(flag).commit();
         }
 
         pub fn setAllFlags() void {
-            update().setAll().commit();
+            chain().setAll().commit();
         }
 
         pub fn clearAllFlags() void {
-            update().clearAll().commit();
+            chain().clearAll().commit();
         }
 
         pub fn isSet(flag: Flag) bool {
