@@ -1,72 +1,60 @@
 const std = @import("std");
 
-pub fn FlagOps(comptime Flag: type) type {
-    return struct {
-        pub inline fn mask(flag: Flag) usize {
-            return @intFromEnum(flag);
+pub const UserRegister = enum(usize) {
+    zero = 0, // x0, hardwired zero
+    ra = 1, // x1
+    sp = 2, // x2
+    gp = 3, // x3
+    tp = 4, // x4
+
+    t0 = 5, // x5
+    t1 = 6, // x6
+    t2 = 7, // x7
+
+    s0 = 8, // x8 / fp
+    s1 = 9, // x9
+
+    a0 = 10, // x10, syscall return value / arg0
+    a1 = 11, // x11
+    a2 = 12, // x12
+    a3 = 13, // x13
+    a4 = 14, // x14
+    a5 = 15, // x15
+    a6 = 16, // x16
+    a7 = 17, // x17, syscall number
+
+    s2 = 18, // x18
+    s3 = 19, // x19
+    s4 = 20, // x20
+    s5 = 21, // x21
+    s6 = 22, // x22
+    s7 = 23, // x23
+    s8 = 24, // x24
+    s9 = 25, // x25
+    s10 = 26, // x26
+    s11 = 27, // x27
+
+    t3 = 28, // x28
+    t4 = 29, // x29
+    t5 = 30, // x30
+    t6 = 31, // x31
+
+    pub inline fn write(register: UserRegister, value: usize) void {
+        if (register == .zero) {
+            return;
         }
+        asm volatile (std.fmt.comptimePrint("mv x{d}, a0", .{@intFromEnum(register)})
+            :
+            : [value] "{a0}" (value),
+        );
+    }
 
-        pub inline fn set(flag: Flag, value: usize) usize {
-            return value | mask(flag);
+    pub inline fn read(register: UserRegister) usize {
+        if (register == .zero) {
+            return 0;
         }
-
-        pub inline fn clear(flag: Flag, value: usize) usize {
-            return value & ~mask(flag);
-        }
-
-        pub inline fn isSet(flag: Flag, value: usize) bool {
-            return (value & mask(flag)) != 0;
-        }
-    };
-}
-
-pub fn RegisterWithFlags(comptime name: []const u8, comptime Flag: type) type {
-    return struct {
-        pub const registerName = name;
-        pub const flags = FlagOps(Flag);
-
-        pub inline fn read() usize {
-            return asm volatile ("csrr a0, " ++ name
-                : [ret] "={a0}" (-> usize),
-            );
-        }
-
-        pub inline fn write(value: usize) void {
-            asm volatile ("csrw " ++ name ++ ", a0"
-                :
-                : [value] "{a0}" (value),
-            );
-        }
-
-        pub inline fn set(bit: Flag) void {
-            write(flags.set(bit, read()));
-        }
-
-        pub inline fn clear(bit: Flag) void {
-            write(flags.clear(bit, read()));
-        }
-
-        pub inline fn isSet(bit: Flag) bool {
-            return flags.isSet(bit, read());
-        }
-    };
-}
-
-pub fn Register(comptime name: []const u8) type {
-    return struct { 
-        pub const registerName = name;
-        pub inline fn read() usize {
-            return asm volatile ("csrr a0, " ++ name
-                : [ret] "={a0}" (-> usize),
-            );
-        }
-
-        pub inline fn write(value: usize) void {
-            asm volatile ("csrw " ++ name ++ ", a0"
-                :
-                : [value] "{a0}" (value),
-            );
-        }
-
-    };
-}
+        return asm volatile (std.fmt.comptimePrint("mv a0, x{d}", .{@intFromEnum(register)})
+            : [ret] "={a0}" (-> usize),
+        );
+    }
+};

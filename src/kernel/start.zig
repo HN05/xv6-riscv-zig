@@ -2,7 +2,7 @@
 
 const std = @import("std");
 const csr = @import("csr.zig");
-const riscv = @import("common").riscv;
+const registers = @import("common").riscv.registers;
 const main = @import("main.zig");
 const param = @import("common").param;
 const memlayout = @import("memlayout.zig");
@@ -23,8 +23,7 @@ export var stack0 align(16) = [_]u8{0} ** stack_size;
 /// entry.S jumps here in machine mode on stack0.
 pub export fn start() void {
     // set M Previous Privilege mode to Supervisor, for mret.
-    csr.Mstatus.clear(.Machine_prev_priv_mach); // clears all mpp bits
-    csr.Mstatus.set(.Machine_prev_priv_sup);
+    csr.Mstatus.setMpp(.Supervisor);
 
     // set M Exception Program Counter to kmain, for mret.
     // requires code_model = .medium
@@ -51,7 +50,7 @@ pub export fn start() void {
 
     // keep each CPU's hartid in its tp register, for cpuid().
     const id = csr.Mhartid.read();
-    riscv.w_tp(id);
+    registers.UserRegister.tp.write(id);
 
     asm volatile ("mret");
 }
