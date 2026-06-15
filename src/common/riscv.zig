@@ -1,5 +1,5 @@
 pub const pagesize = 4096; // bytes per page
-pub const registers = @import("registers.zig");
+pub const registers = @import("registers.zig").UserRegister;
 
 
 // one beyond the highest possible virtual address.
