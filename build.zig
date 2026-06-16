@@ -22,7 +22,6 @@ const kernel_src = [_][]const u8{
     "src/kernel/file.c", // File descriptor support.
     "src/kernel/pipe.c", // Pipes.
     "src/kernel/exec.c", // exec() system call.
-    "src/kernel/sysfile.c", // File-related system calls.
     "src/kernel/kernelvec.S", // Handle traps from kernel, and timer interrupts.
     "src/kernel/virtio_disk.c", // Disk device driver.
 };

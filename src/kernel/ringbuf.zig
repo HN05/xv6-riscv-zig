@@ -151,11 +151,10 @@ fn findRingbufByName(name: []const u8) ?*Ringbuf {
 ///
 ///  We use the process's top_free_uvm_pg to find a slot in the userspace.
 ///  We map the ringbuf twice contiguously, and the book page right under it.
-fn ringbuf(name_str: [*:0]const u8, op: Rb.Op, addr_va: *?*align(pagesize) anyopaque) Rb.RingbufError!void {
+fn ringbuf(name: []const u8, op: Rb.Op, addr_va: *?*align(pagesize) anyopaque) Rb.RingbufError!void {
     spinlock.acquire();
     defer spinlock.release();
 
-    const name: []const u8 = std.mem.span(name_str);
     if (name.len > MAX_NAME_LEN or name.len == 0) return error.BadNameLength;
 
     var proc: *c.struct_proc = c.myproc() orelse @panic("myproc is null");
@@ -293,27 +292,27 @@ fn ringbuf(name_str: [*:0]const u8, op: Rb.Op, addr_va: *?*align(pagesize) anyop
     }
 }
 
+const sysargs = @import("sysargs.zig");
 pub fn syscall() u64 {
     c.begin_op();
     defer c.end_op();
 
-    var name: [MAX_NAME_LEN]u8 = [_]u8{0} ** MAX_NAME_LEN;
-    if (0 > c.argstr(0, &name, MAX_NAME_LEN)) {
+    var buffer: [MAX_NAME_LEN]u8 = undefined;
+
+    const len = sysargs.getString(.a0, &buffer) catch {
         // sys_FOO C functions return a uint64 yet return -1 on errors
         // Zig has stricter rules about implicit casts + overflow and underflow,
         // so we'll need to return a bitcasted negative on errors
         return @bitCast(com.ringbuf.intFromErr(com.ringbuf.RingbufError, error.BadNameLength));
-    }
-    const name_str: [*:0]const u8 = @ptrCast(&name);
+    };
 
-    var open: c_int = -1;
-    c.argint(1, &open);
+    const name: []const u8 = buffer[0..len];
+    const open = sysargs.getInt(.a1);
+    const addr = sysargs.getAddress(.a2) orelse {
+        return @bitCast(com.ringbuf.intFromErr(com.ringbuf.RingbufError, error.NoAddrGiven));
+    };
 
-    var null_ptr: ?*anyopaque = null;
-    var addr: *?*anyopaque = &null_ptr;
-    c.argaddr(2, @ptrCast(&addr));
-
-    ringbuf(name_str, @enumFromInt(open), @ptrCast(addr)) catch |err| {
+    ringbuf(name, @enumFromInt(open), @alignCast(@ptrCast(addr))) catch |err| {
         return @bitCast(com.ringbuf.intFromErr(com.ringbuf.RingbufError, err));
     };
     return 0;

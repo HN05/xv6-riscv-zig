@@ -1,6 +1,7 @@
 const std = @import("std");
 const log = @import("klog.zig");
 const procsyscalls = @import("sysproc.zig");
+const filesyscalls = @import("sysfile.zig");
 const ringbuf = @import("ringbuf.zig");
 const SyscallNum = @import("syscallnum.zig").SyscallNum;
 
@@ -17,8 +18,6 @@ const c = @cImport({
 // Prototypes for the functions that handle system calls.
 extern fn sys_fstat() u64;
 extern fn sys_chdir() u64;
-extern fn sys_dup() u64;
-extern fn sys_read() u64;
 extern fn sys_open() u64;
 extern fn sys_write() u64;
 extern fn sys_mknod() u64;
@@ -39,7 +38,7 @@ export fn syscall() void {
         .exit => procsyscalls.sys_exit(),
         .close => sys_close(),
         .chdir => sys_chdir(),
-        .dup => sys_dup(),
+        .dup => filesyscalls.sys_dup(),
         .exec => sys_exec(),
         .fork => procsyscalls.sys_fork(),
         .fstat => sys_fstat(),
@@ -52,7 +51,7 @@ export fn syscall() void {
         .mknod => sys_mknod(),
         .open => sys_open(),
         .pipe => sys_pipe(),
-        .read => sys_read(),
+        .read => filesyscalls.sys_read(),
         .sbrk => procsyscalls.sys_sbrk(),
         .sleep => procsyscalls.sys_sleep(),
         .unlink => sys_unlink(),

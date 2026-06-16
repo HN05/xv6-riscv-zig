@@ -1,20 +1,24 @@
 const std = @import("std");
 const log = @import("klog.zig");
 
-const c = @cImport({
+pub const c = @cImport({
     @cInclude("kernel/types.h");
-    @cInclude("kernel/param.h");
-    @cInclude("kernel/memlayout.h");
     @cInclude("kernel/riscv.h");
+    @cInclude("kernel/defs.h");
+    @cInclude("kernel/param.h");
+    @cInclude("kernel/stat.h");
     @cInclude("kernel/spinlock.h");
     @cInclude("kernel/proc.h");
-    @cInclude("kernel/defs.h");
+    @cInclude("kernel/fs.h");
+    @cInclude("kernel/sleeplock.h");
+    @cInclude("kernel/file.h");
+    @cInclude("kernel/fcntl.h");
 });
 
 const InputRegister = enum { a0, a1, a2, a3, a4, a5 };
 pub const errorVal = ~@as(u64, 0);
 
-pub fn int(register: InputRegister) usize {
+pub fn getInt(register: InputRegister) usize {
     const process = c.myproc();
     const result = switch (register) {
         .a0 => process.*.trapframe.*.a0,
@@ -27,56 +31,63 @@ pub fn int(register: InputRegister) usize {
     return @intCast(result);
 }
 
+const AddressNullErr = error{IsNull};
 
 // Retrieve an argument as a pointer.
 // Doesn't check for legality, since
 // copyin/copyout will do that.
-pub fn addr(register: InputRegister) *anyopaque {
-    return @ptrFromInt(int(register));
+pub fn getAddress(register: InputRegister) ?*anyopaque {
+    return @ptrFromInt(getInt(register));
 }
-
 
 // Fetch the nth word-sized system call argument as a null-terminated string.
 // Copies into buf, at most max.
 // Returns string length if OK (including nul), -1 if error.
-pub fn str(register: InputRegister, buffer: []u8, max: usize) !usize {
-    return c.fetchstr(addr(register), buffer, max);
-}
-
-
-// c helpers to remove
-fn argraw(num: c_int) c.uint64 {
-    const process = c.myproc();
-    switch (num) {
-        0 => return process.*.trapframe.*.a0,
-        1 => return process.*.trapframe.*.a1,
-        2 => return process.*.trapframe.*.a2,
-        3 => return process.*.trapframe.*.a3,
-        4 => return process.*.trapframe.*.a4,
-        5 => return process.*.trapframe.*.a5,
-        else => @panic("argraw"),
+pub fn getString(register: InputRegister, buffer: []u8) !usize {
+    const address = getAddress(register);
+    if (address) |a| {
+        return try getStringFromAddres(a, buffer);
     }
+    return AddressNullErr.IsNull;
 }
 
-// Fetch the nth 32-bit system call argument.
-export fn argint(num: c_int, ip: *c_int) void {
-    ip.* = @intCast(argraw(num));
+const GetFileErrors = error{ OutOfRange, NotCreated };
+
+// Fetch the nth word-sized system call argument as a file descriptor
+// and return both the descriptor and the corresponding struct file.
+pub fn getFile(register: InputRegister, fileDestination: ?**c.struct_file) GetFileErrors!usize {
+    const fd = getInt(register);
+    if (fd < 0 or fd >= c.NOFILE) {
+        return GetFileErrors.OutOfRange;
+    }
+
+    const files = c.myproc().*.ofile;
+    const file = files[fd] orelse {
+        return GetFileErrors.NotCreated;
+    };
+
+    if (fileDestination) |dest| {
+        dest.* = file;
+    }
+
+    return fd;
 }
 
-// Retrieve an argument as a pointer.
-// Doesn't check for legality, since
-// copyin/copyout will do that.
-export fn argaddr(num: c_int, ip: *c.uint64) void {
-    ip.* = argraw(num);
-}
+const FileDescriptorAllocateErrors = error{OutOfSpace};
 
-// Fetch the nth word-sized system call argument as a null-terminated string.
-// Copies into buf, at most max.
-// Returns string length if OK (including nul), -1 if error.
-export fn argstr(num: c_int, buffer: [*c]u8, max: c_int) c_int {
-    var address: c.uint64 = undefined;
-    argaddr(num, &address);
-    return c.fetchstr(address, buffer, max);
+// Allocate a file descriptor for the given file.
+// Takes over file reference from caller on success.
+pub fn fileDescriptorAllocate(file: *c.struct_file) FileDescriptorAllocateErrors!usize {
+    var files = c.myproc().*.ofile;
+
+    var fd: usize = 0;
+    while (fd < c.NOFILE) : (fd += 1) {
+        if (files[fd] == null) {
+            files[fd] = file;
+            return fd;
+        }
+    }
+    return FileDescriptorAllocateErrors.OutOfSpace;
 }
 
 // Fetch the uint64 at addr from the current process.
@@ -94,14 +105,15 @@ export fn fetchaddr(address: c.uint64, ip: *c.uint64) c_int {
     return 0;
 }
 
+const FetchStringError = error{failed};
+
 // Fetch the nul-terminated string at addr from the current process.
 // Returns length of string, not including nul, or -1 for error.
-export fn fetchstr(address: c.uint64, buffer: [*c]u8, max: c_int) c_int {
+pub fn getStringFromAddres(address: *anyopaque, buffer: []u8) FetchStringError!usize {
     const process = c.myproc();
-    const result = c.copyinstr(process.*.pagetable, buffer, address, @intCast(max));
+    const result = c.copyinstr(process.*.pagetable, @ptrCast(buffer), @intFromPtr(address), buffer.len);
     if (result < 0) {
-        return -1;
+        return FetchStringError.failed;
     }
-    return c.strlen(buffer);
+    return std.mem.indexOfScalar(u8, buffer, 0) orelse buffer.len;
 }
-
