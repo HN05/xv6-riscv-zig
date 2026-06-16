@@ -13,30 +13,6 @@ const Atomic = std.atomic.Value;
 const riscv = @import("common").riscv;
 const csr = @import("csr.zig");
 
-const c_spinlock = extern struct {
-    locked: u32 = 0, // Is the lock held?
-    name: ?[*:0]const u8 = null,
-    cpu: ?*c.struct_cpu = null,
-};
-
-pub const CSpinlock = extern struct {
-    const Self = @This();
-    lock: c_spinlock,
-
-    pub fn init(self: *Self, name: ?[*:0]const u8) void {
-        initlock(@ptrCast(&self.lock), @ptrCast(@constCast(name)));
-    }
-    pub fn acquireLock(self: *CSpinlock) void {
-        acquire(@ptrCast(&self.lock));
-    }
-    pub fn releaseLock(self: *CSpinlock) void {
-        release(@ptrCast(&self.lock));
-    }
-    pub fn isHoldingLock(self: *CSpinlock) bool {
-        return holding(@ptrCast(&self.lock)) == 1;
-    }
-};
-
 pub const SpinLock = struct {
     isLocked: Atomic(bool) = .init(false),
 
@@ -96,6 +72,62 @@ pub const SpinLock = struct {
     }
 };
 
+// push_off/pop_off are like intr_off()/intr_on() except that they are matched:
+// it takes two pop_off()s to undo two push_off()s.  Also, if interrupts
+// are initially off, then push_off, pop_off leaves them off.
+export fn push_off() void {
+    const interruptsOn = csr.interrupts_is_on();
+    csr.interrupts_off();
+
+    const cpu = c.mycpu();
+    if (cpu.*.noff == 0) {
+        cpu.*.intena = @intFromBool(interruptsOn);
+    }
+    cpu.*.noff += 1;
+}
+
+export fn pop_off() void {
+    if (csr.interrupts_is_on()) {
+        @panic("pop_off - interruptible");
+    }
+
+    const cpu = c.mycpu();
+    if (cpu.*.noff < 1) {
+        @panic("pop_off");
+    }
+
+    cpu.*.noff -= 1;
+    if (cpu.*.noff == 0 and cpu.*.intena != 0) {
+        csr.interrupts_on();
+    }
+}
+
+//  TODO: remove under
+
+const c_spinlock = extern struct {
+    locked: u32 = 0, // Is the lock held?
+    name: ?[*:0]const u8 = null,
+    cpu: ?*c.struct_cpu = null,
+};
+
+const CSpinlock = extern struct {
+    const Self = @This();
+    lock: c_spinlock,
+
+    fn init(self: *Self, name: ?[*:0]const u8) void {
+        initlock(@ptrCast(&self.lock), @ptrCast(@constCast(name)));
+    }
+    fn acquireLock(self: *CSpinlock) void {
+        acquire(@ptrCast(&self.lock));
+    }
+    fn releaseLock(self: *CSpinlock) void {
+        release(@ptrCast(&self.lock));
+    }
+    fn isHoldingLock(self: *CSpinlock) bool {
+        return holding(@ptrCast(&self.lock)) == 1;
+    }
+};
+
 export fn initlock(spinlock: *c.struct_spinlock, name: [*c]u8) void {
     spinlock.name = name;
     spinlock.locked = 0;
@@ -138,32 +170,3 @@ export fn holding(spinlock: *c.struct_spinlock) c_int {
     return @intFromBool(isHolding(spinlock));
 }
 
-// push_off/pop_off are like intr_off()/intr_on() except that they are matched:
-// it takes two pop_off()s to undo two push_off()s.  Also, if interrupts
-// are initially off, then push_off, pop_off leaves them off.
-export fn push_off() void {
-    const interruptsOn = csr.interrupts_is_on();
-    csr.interrupts_off();
-
-    const cpu = c.mycpu();
-    if (cpu.*.noff == 0) {
-        cpu.*.intena = @intFromBool(interruptsOn);
-    }
-    cpu.*.noff += 1;
-}
-
-export fn pop_off() void {
-    if (csr.interrupts_is_on()) {
-        @panic("pop_off - interruptible");
-    }
-
-    const cpu = c.mycpu();
-    if (cpu.*.noff < 1) {
-        @panic("pop_off");
-    }
-
-    cpu.*.noff -= 1;
-    if (cpu.*.noff == 0 and cpu.*.intena != 0) {
-        csr.interrupts_on();
-    }
-}
