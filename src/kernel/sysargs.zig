@@ -8,7 +8,6 @@ const c = @cImport({
     @cInclude("kernel/riscv.h");
     @cInclude("kernel/spinlock.h");
     @cInclude("kernel/proc.h");
-    @cInclude("kernel/syscall.h");
     @cInclude("kernel/defs.h");
 });
 

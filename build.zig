@@ -96,31 +96,6 @@ const ulib_z_src = [_][]const u8{
     "src/user/ulib/umalloc.c",
 };
 
-const syscalls = [_][]const u8{
-    "fork", // Create a process, return childΓÇÖs PID.
-    "exit", // Terminate the current process; status reported to wait(). No return.
-    "wait", // Wait for a child to exit; exit status in *status; returns child PID.
-    "pipe", // Create a pipe, put read/write file descriptors in p[0] and p[1].
-    "read", // Read n bytes into buf; returns number read; or 0 if end of file.
-    "write", // Write n bytes from buf to file descriptor fd; returns n.
-    "close", // Release open file fd.
-    "kill", // Terminate process PID. Returns 0, or -1 for error.
-    "exec", // Load a file and execute it with arguments; only returns if error.
-    "open", // Open a file; flags indicate read/write; returns an fd (file descriptor).
-    "mknod", // Create a device file.
-    "unlink", // Remove a file.
-    "fstat", // Place info about an open file into *st.
-    "link", // Create another name (file2) for the file file1.
-    "mkdir", // Create a new directory.
-    "chdir", // Change the current directory.
-    "dup", // Return a new file descriptor referring to the same file as fd.
-    "getpid", // Return the current processors PID.
-    "sbrk", // Grow processors memory by n bytes. Returns start of new memory.
-    "sleep", // Pause for n clock ticks.
-    "uptime", // Return the current time since boot in ticks.
-    "ringbuf", // Ringbuf creation/deletion
-};
-
 pub fn build(b: *std.Build) !void {
     const target_query = std.Target.Query{
         .os_tag = .freestanding,
@@ -156,7 +131,7 @@ pub fn build(b: *std.Build) !void {
 
     b.installArtifact(kernel);
 
-    const syscall_gen_step = addSyscallGen(b, &syscalls);
+    const syscall_gen_step = addSyscallGen(b);
 
     const ulib_mod = b.createModule(.{
         .root_source_file = b.path("src/user/ulib/ulib.zig"),
@@ -246,9 +221,8 @@ pub fn addMakeFilesystem(
 
 pub fn addSyscallGen(
     b: *std.Build,
-    data: []const []const u8,
 ) *SyscallGenStep {
-    return SyscallGenStep.create(b, data);
+    return SyscallGenStep.create(b);
 }
 
 pub fn qemuRun(
