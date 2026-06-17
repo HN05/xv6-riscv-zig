@@ -67,8 +67,8 @@ pub fn getFileAndDescriptor(register: InputRegister, fileDestination: ?**c.struc
         return GetFileErrors.OutOfRange;
     }
 
-    const files = c.myproc().*.ofile;
-    const file = files[fd] orelse {
+    const files: *[c.NOFILE][*c]c.struct_file = &c.myproc().*.ofile;
+    const file = files.*[fd] orelse {
         return GetFileErrors.NotCreated;
     };
 
@@ -84,12 +84,12 @@ const FileDescriptorAllocateErrors = error{OutOfSpace};
 // Allocate a file descriptor for the given file.
 // Takes over file reference from caller on success.
 pub fn fileDescriptorAllocate(file: *c.struct_file) FileDescriptorAllocateErrors!usize {
-    var files = c.myproc().*.ofile;
+    const files: *[c.NOFILE][*c]c.struct_file = &c.myproc().*.ofile;
 
     var fd: usize = 0;
     while (fd < c.NOFILE) : (fd += 1) {
-        if (files[fd] == null) {
-            files[fd] = file;
+        if (files.*[fd] == null) {
+            files.*[fd] = file;
             return fd;
         }
     }

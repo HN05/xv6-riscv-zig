@@ -70,8 +70,9 @@ pub fn sys_close() u64 {
         return sysargs.errorVal;
     };
 
-    var files = c.myproc().*.ofile;
-    files[fd] = null;
+    const files: *[c.NOFILE][*c]c.struct_file = &c.myproc().*.ofile;
+    files.*[fd] = null;
+
     c.fileclose(file);
     return 0;
 }
@@ -232,7 +233,18 @@ pub fn unlink() UnlinkErrors!void {
     c.iupdate(inode);
 }
 
-pub const InodeKind = enum { Directory, Device, File };
+pub const InodeKind = enum {
+    Directory,
+    Device,
+    File,
+    pub fn cShort(self: InodeKind) c_short {
+        switch (self) {
+            .File => return c.T_FILE,
+            .Device => return c.T_DEVICE,
+            .Directory => return c.T_DIR,
+        }
+    }
+};
 
 fn MakeDeviceID(comptime ndev: comptime_int) type {
     const total_bits = @bitSizeOf(usize);
@@ -268,7 +280,7 @@ fn create(path: []u8, kind: InodeKind, device: DeviceID) CreateErrors!*c.struct_
         return CreateErrors.PathExistsWithWrongType;
     }
 
-    const inode = c.ialloc(device.major, @intCast(device.minor)) orelse return CreateErrors.FailedAllocateInode;
+    const inode = c.ialloc(directory.*.dev, kind.cShort()) orelse return CreateErrors.FailedAllocateInode;
 
     c.ilock(inode);
     errdefer {
@@ -370,7 +382,7 @@ pub fn open() !usize {
     if (inode.*.type == c.T_DEVICE and (inode.*.major < 0 or inode.*.major >= params.NDEV)) return OpenErrors.InvalidDeviceMajor;
 
     const file = c.filealloc() orelse return OpenErrors.FailedAllocFile;
-    defer c.fileclose(file);
+    errdefer c.fileclose(file);
 
     const fd = try sysargs.fileDescriptorAllocate(file);
 
@@ -427,7 +439,7 @@ pub fn sys_mknod() u64 {
     }
 
     const Minor = @FieldType(DeviceID, "minor");
-    if (minor >= std.math.maxInt(Minor)){
+    if (minor >= std.math.maxInt(Minor)) {
         log.print("minor out of range", .{});
         return sysargs.errorVal;
     }
@@ -491,7 +503,7 @@ pub fn exec() ExecErrors!void {
     var path: [c.MAXPATH]u8 = undefined;
     _ = sysargs.getString(.a0, &path) catch return ExecErrors.FailedGetProgPath;
 
-    const userArgArray: [*]*anyopaque = @alignCast(@ptrCast(sysargs.getAddress(.a1) orelse return ExecErrors.FailedGetArgv));
+    const userArgArray: [*]*anyopaque = @ptrCast(@alignCast(sysargs.getAddress(.a1) orelse return ExecErrors.FailedGetArgv));
 
     var argv: [c.MAXARG]?[*:0]u8 = undefined;
     @memset(&argv, null);
@@ -503,7 +515,6 @@ pub fn exec() ExecErrors!void {
             }
         }
     }
-
 
     var index: usize = 0;
     var userArgBuf: ?*anyopaque = null;
@@ -526,8 +537,6 @@ pub fn exec() ExecErrors!void {
     if (result < 0) return ExecErrors.ExecFail;
 }
 
-
-
 pub fn sys_pipe() u64 {
     pipe() catch |err| {
         log.print("could not pipe: {s}", .{@errorName(err)});
@@ -539,23 +548,23 @@ pub fn sys_pipe() u64 {
 const PipeErrors = error{ FailedGetFdArray, FailedToAllocPipe, FailedToOutputFirstFd, FailedToOutputSecondFd };
 
 pub fn pipe() !void {
-    const fileDescArray: [*]c.struct_file = @alignCast(@ptrCast(sysargs.getAddress(.a0) orelse return PipeErrors.FailedGetFdArray));
+    const fileDescArray: [*]c.struct_file = @ptrCast(@alignCast(sysargs.getAddress(.a0) orelse return PipeErrors.FailedGetFdArray));
 
     var readFile: [*c]c.struct_file = undefined;
     var writeFile: [*c]c.struct_file = undefined;
-    if(c.pipealloc(&readFile, &writeFile) < 0) return PipeErrors.FailedToAllocPipe;
+    if (c.pipealloc(&readFile, &writeFile) < 0) return PipeErrors.FailedToAllocPipe;
 
     errdefer c.fileclose(writeFile);
     errdefer c.fileclose(readFile);
 
     const process = c.myproc();
-    var files = process.*.ofile;
+    const files: *[c.NOFILE][*c]c.struct_file = &c.myproc().*.ofile;
 
     var readFileDescriptor = try sysargs.fileDescriptorAllocate(readFile);
-    errdefer files[readFileDescriptor] = 0;
+    errdefer files.*[readFileDescriptor] = 0;
 
     var writeFileDescriptor = try sysargs.fileDescriptorAllocate(writeFile);
-    errdefer files[writeFileDescriptor] = 0;
+    errdefer files.*[writeFileDescriptor] = 0;
 
     const result1 = c.copyout(process.*.pagetable, @intFromPtr(fileDescArray), @ptrCast(&readFileDescriptor), @sizeOf(*c.struct_file));
     if (result1 < 0) return PipeErrors.FailedToOutputFirstFd;
@@ -563,4 +572,3 @@ pub fn pipe() !void {
     const result2 = c.copyout(process.*.pagetable, @intFromPtr(fileDescArray + 1), @ptrCast(&writeFileDescriptor), @sizeOf(*c.struct_file));
     if (result2 < 0) return PipeErrors.FailedToOutputSecondFd;
 }
-
