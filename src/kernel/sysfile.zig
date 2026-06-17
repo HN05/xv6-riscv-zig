@@ -510,7 +510,7 @@ pub fn exec() ExecErrors!void {
     while (true) : (index += 1) {
         if (index >= argv.len) return ExecErrors.TooManyArgs;
 
-        sysargs.fetchAddr(userArgArray[index], &userArgBuf) catch return ExecErrors.FailedGetArgAddr;
+        sysargs.fetchAddr(@ptrCast(userArgArray + index), &userArgBuf) catch return ExecErrors.FailedGetArgAddr;
 
         const userArg = userArgBuf orelse {
             argv[index] = null;
