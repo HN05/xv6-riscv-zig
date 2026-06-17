@@ -63,7 +63,7 @@ pub fn getFile(register: InputRegister) GetFileErrors!*c.struct_file {
 // and return both the descriptor and the corresponding struct file.
 pub fn getFileAndDescriptor(register: InputRegister, fileDestination: ?**c.struct_file) GetFileErrors!usize {
     const fd = getInt(register);
-    if (fd < 0 or fd >= c.NOFILE) {
+    if (fd >= c.NOFILE) {
         return GetFileErrors.OutOfRange;
     }
 

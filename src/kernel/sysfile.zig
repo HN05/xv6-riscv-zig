@@ -8,7 +8,7 @@ const std = @import("std");
 
 const sysargs = @import("sysargs.zig");
 const c = sysargs.c;
-const log = @import("klog.zig");
+const log = @import("debuglog.zig");
 const common = @import("common");
 const params = common.param;
 const kalloc = @import("kalloc.zig");
@@ -548,7 +548,7 @@ pub fn sys_pipe() u64 {
 const PipeErrors = error{ FailedGetFdArray, FailedToAllocPipe, FailedToOutputFirstFd, FailedToOutputSecondFd };
 
 pub fn pipe() !void {
-    const fileDescArray: [*]usize = @ptrCast(@alignCast(sysargs.getAddress(.a0) orelse return PipeErrors.FailedGetFdArray));
+    const fileDescArray: [*]c_int = @ptrCast(@alignCast(sysargs.getAddress(.a0) orelse return PipeErrors.FailedGetFdArray));
 
     var readFile: [*c]c.struct_file = undefined;
     var writeFile: [*c]c.struct_file = undefined;
