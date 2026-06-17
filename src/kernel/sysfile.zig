@@ -490,16 +490,15 @@ pub fn chdir() ChdirErrors!void {
 }
 
 pub fn sys_exec() u64 {
-    exec() catch |err| {
+    return exec() catch |err| {
         log.print("could not exec: {s}", .{@errorName(err)});
         return sysargs.errorVal;
     };
-    return 0;
 }
 
 const ExecErrors = error{ FailedGetProgPath, FailedGetArgv, TooManyArgs, FailedGetArgAddr, FailedGetMem, FailedGetArgData, ExecFail };
 
-pub fn exec() ExecErrors!void {
+pub fn exec() ExecErrors!u64 {
     var path: [c.MAXPATH]u8 = undefined;
     _ = sysargs.getString(.a0, &path) catch return ExecErrors.FailedGetProgPath;
 
@@ -535,6 +534,7 @@ pub fn exec() ExecErrors!void {
 
     const result = c.exec(&path, @ptrCast(&argv));
     if (result < 0) return ExecErrors.ExecFail;
+    return @intCast(result);
 }
 
 pub fn sys_pipe() u64 {
