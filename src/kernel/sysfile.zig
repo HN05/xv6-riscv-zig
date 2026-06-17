@@ -548,7 +548,7 @@ pub fn sys_pipe() u64 {
 const PipeErrors = error{ FailedGetFdArray, FailedToAllocPipe, FailedToOutputFirstFd, FailedToOutputSecondFd };
 
 pub fn pipe() !void {
-    const fileDescArray: [*]c.struct_file = @ptrCast(@alignCast(sysargs.getAddress(.a0) orelse return PipeErrors.FailedGetFdArray));
+    const fileDescArray: [*]usize = @ptrCast(@alignCast(sysargs.getAddress(.a0) orelse return PipeErrors.FailedGetFdArray));
 
     var readFile: [*c]c.struct_file = undefined;
     var writeFile: [*c]c.struct_file = undefined;
@@ -561,10 +561,10 @@ pub fn pipe() !void {
     const files: *[c.NOFILE][*c]c.struct_file = &c.myproc().*.ofile;
 
     var readFileDescriptor = try sysargs.fileDescriptorAllocate(readFile);
-    errdefer files.*[readFileDescriptor] = 0;
+    errdefer files.*[readFileDescriptor] = null;
 
     var writeFileDescriptor = try sysargs.fileDescriptorAllocate(writeFile);
-    errdefer files.*[writeFileDescriptor] = 0;
+    errdefer files.*[writeFileDescriptor] = null;
 
     const result1 = c.copyout(process.*.pagetable, @intFromPtr(fileDescArray), @ptrCast(&readFileDescriptor), @sizeOf(*c.struct_file));
     if (result1 < 0) return PipeErrors.FailedToOutputFirstFd;
