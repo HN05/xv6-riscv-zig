@@ -118,7 +118,7 @@ pub fn link() LinkErrors!void {
     defer c.end_op();
 
     const inode = c.namei(&old) orelse return LinkErrors.FailedGetInode;
-    defer c.iput(inode); 
+    defer c.iput(inode);
 
     // increment references to inode
     {
@@ -154,79 +154,80 @@ pub fn link() LinkErrors!void {
     }
 }
 
-//
-// // Is the directory dp empty except for "." and ".." ?
-// static int
-// isdirempty(struct inode *dp)
-// {
-//   int off;
-//   struct dirent de;
-//
-//   for(off=2*sizeof(de); off<dp->size; off+=sizeof(de)){
-//     if(readi(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
-//       panic("isdirempty: readi");
-//     if(de.inum != 0)
-//       return 0;
-//   }
-//   return 1;
-// }
-//
-// uint64
-// sys_unlink(void)
-// {
-//   struct inode *ip, *dp;
-//   struct dirent de;
-//   char name[DIRSIZ], path[MAXPATH];
-//   uint off;
-//
-//   if(argstr(0, path, MAXPATH) < 0)
-//     return -1;
-//
-//   begin_op();
-//   if((dp = nameiparent(path, name)) == 0){
-//     end_op();
-//     return -1;
-//   }
-//
-//   ilock(dp);
-//
-//   // Cannot unlink "." or "..".
-//   if(namecmp(name, ".") == 0 || namecmp(name, "..") == 0)
-//     goto bad;
-//
-//   if((ip = dirlookup(dp, name, &off)) == 0)
-//     goto bad;
-//   ilock(ip);
-//
-//   if(ip->nlink < 1)
-//     panic("unlink: nlink < 1");
-//   if(ip->type == T_DIR && !isdirempty(ip)){
-//     iunlockput(ip);
-//     goto bad;
-//   }
-//
-//   memset(&de, 0, sizeof(de));
-//   if(writei(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
-//     panic("unlink: writei");
-//   if(ip->type == T_DIR){
-//     dp->nlink--;
-//     iupdate(dp);
-//   }
-//   iunlockput(dp);
-//
-//   ip->nlink--;
-//   iupdate(ip);
-//   iunlockput(ip);
-//
-//   end_op();
-//
-//   return 0;
-//
-// bad:
-//   iunlockput(dp);
-//   end_op();
-//   return -1;
-// }
+fn isDirectoryEmpty(directory: *c.struct_inode) bool {
+    const directoryOffset = @sizeOf(c.struct_dirent);
+    var index = 2; // skip past . and ..
+    var directoryEntitiy: c.struct_dirent = undefined;
+
+    while (index * directoryOffset < directory.*.size) : (index += 1) {
+        const readBytes = c.readi(directory, 0, &directoryEntitiy, index * directoryOffset, directoryOffset);
+        if (readBytes != directoryOffset) {
+            @panic("isDirectoryEmpty: readi");
+        }
+
+        if (directoryEntitiy.inum != 0) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+pub fn sys_unlink() u64 {
+    unlink() catch |err| {
+        log.print("could not get link: {s}", .{@errorName(err)});
+        return sysargs.errorVal;
+    };
+    return 0;
+}
+
+const UnlinkErrors = error{ FailedGetPath, FailedGetParentDir, IsDot, IsDotDot, FailedDirLookup, DirectoryNotEmpty };
+
+pub fn unlink() UnlinkErrors!void {
+    var path: [c.MAXPATH]u8 = undefined;
+    _ = sysargs.getString(.a0, &path) catch return UnlinkErrors.FailedGetPath;
+
+    c.begin_op();
+    defer c.end_op();
+
+    var name: [c.DIRSIZ]u8 = undefined;
+    const directory = c.nameiparent(&path, &name) orelse return UnlinkErrors.FailedGetParentDir;
+
+    c.ilock(directory);
+    defer c.iunlockput(directory);
+
+    if (c.namecmp(&name, ".") == 0) return UnlinkErrors.IsDot;
+    if (c.namecmp(&name, "..") == 0) return UnlinkErrors.IsDotDot;
+
+    var offset: usize = undefined;
+    const inode = c.dirlookup(directory, name, &offset) orelse return UnlinkErrors.FailedDirLookup;
+
+    c.ilock(inode);
+    defer c.iunlockput(inode);
+
+    if (inode.*.nlink < 1) {
+        @panic("unlink: nlink < 1");
+    }
+    if (inode.*.type == c.T_DIR and !isDirectoryEmpty(inode)) return UnlinkErrors.DirectoryNotEmpty;
+
+    // remove directory entry
+    {
+        var directoryEntity = std.mem.zeroes(c.struct_dirent);
+        const writtenBytes = c.writei(directory, 0, @intFromPtr(&directoryEntity), offset, @sizeOf(c.struct_dirent));
+        if (writtenBytes != @sizeOf(c.struct_dirent)) {
+            @panic("unlink: writei");
+        }
+    }
+
+    if (inode.*.type == c.T_DIR) {
+        directory.*.nlink -= 1;
+        c.iupdate(directory);
+    }
+
+    inode.*.nlink -= 1;
+    c.iupdate(inode);
+}
+
 //
 // static struct inode*
 // create(char *path, short type, short major, short minor)
