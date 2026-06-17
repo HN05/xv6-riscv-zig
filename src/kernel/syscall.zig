@@ -17,10 +17,8 @@ const c = @cImport({
 
 // Prototypes for the functions that handle system calls.
 extern fn sys_chdir() u64;
-extern fn sys_open() u64;
 extern fn sys_write() u64;
 extern fn sys_mknod() u64;
-extern fn sys_unlink() u64;
 extern fn sys_mkdir() u64;
 extern fn sys_close() u64;
 extern fn sys_pipe() u64;
@@ -32,6 +30,7 @@ export fn syscall() void {
 
     const syscallNum: SyscallNum = @enumFromInt(num);
 
+    //  TODO: make syscalls return void and throw error instead
     const result: u64 = switch (syscallNum) {
         .exit => procsyscalls.sys_exit(),
         .close => filesyscalls.sys_close(),
@@ -47,12 +46,12 @@ export fn syscall() void {
         .link => filesyscalls.sys_link(),
         .mkdir => sys_mkdir(),
         .mknod => sys_mknod(),
-        .open => sys_open(),
+        .open => filesyscalls.sys_open(),
         .pipe => sys_pipe(),
         .read => filesyscalls.sys_read(),
         .sbrk => procsyscalls.sys_sbrk(),
         .sleep => procsyscalls.sys_sleep(),
-        .unlink => sys_unlink(),
+        .unlink => filesyscalls.sys_unlink(),
         .uptime => procsyscalls.sys_uptime(),
         .write => filesyscalls.sys_write(),
         else => ret: {

@@ -9,6 +9,7 @@ const std = @import("std");
 const sysargs = @import("sysargs.zig");
 const c = sysargs.c;
 const log = @import("klog.zig");
+const params = @import("common").param;
 
 pub fn sys_dup() u64 {
     const file = sysargs.getFile(.a0) catch |err| {
@@ -228,134 +229,163 @@ pub fn unlink() UnlinkErrors!void {
     c.iupdate(inode);
 }
 
-//
-// static struct inode*
-// create(char *path, short type, short major, short minor)
-// {
-//   struct inode *ip, *dp;
-//   char name[DIRSIZ];
-//
-//   if((dp = nameiparent(path, name)) == 0)
-//     return 0;
-//
-//   ilock(dp);
-//
-//   if((ip = dirlookup(dp, name, 0)) != 0){
-//     iunlockput(dp);
-//     ilock(ip);
-//     if(type == T_FILE && (ip->type == T_FILE || ip->type == T_DEVICE))
-//       return ip;
-//     iunlockput(ip);
-//     return 0;
-//   }
-//
-//   if((ip = ialloc(dp->dev, type)) == 0){
-//     iunlockput(dp);
-//     return 0;
-//   }
-//
-//   ilock(ip);
-//   ip->major = major;
-//   ip->minor = minor;
-//   ip->nlink = 1;
-//   iupdate(ip);
-//
-//   if(type == T_DIR){  // Create . and .. entries.
-//     // No ip->nlink++ for ".": avoid cyclic ref count.
-//     if(dirlink(ip, ".", ip->inum) < 0 || dirlink(ip, "..", dp->inum) < 0)
-//       goto fail;
-//   }
-//
-//   if(dirlink(dp, name, ip->inum) < 0)
-//     goto fail;
-//
-//   if(type == T_DIR){
-//     // now that success is guaranteed:
-//     dp->nlink++;  // for ".."
-//     iupdate(dp);
-//   }
-//
-//   iunlockput(dp);
-//
-//   return ip;
-//
-//  fail:
-//   // something went wrong. de-allocate ip.
-//   ip->nlink = 0;
-//   iupdate(ip);
-//   iunlockput(ip);
-//   iunlockput(dp);
-//   return 0;
-// }
-//
-// uint64
-// sys_open(void)
-// {
-//   char path[MAXPATH];
-//   int fd, omode;
-//   struct file *f;
-//   struct inode *ip;
-//   int n;
-//
-//   argint(1, &omode);
-//   if((n = argstr(0, path, MAXPATH)) < 0)
-//     return -1;
-//
-//   begin_op();
-//
-//   if(omode & O_CREATE){
-//     ip = create(path, T_FILE, 0, 0);
-//     if(ip == 0){
-//       end_op();
-//       return -1;
-//     }
-//   } else {
-//     if((ip = namei(path)) == 0){
-//       end_op();
-//       return -1;
-//     }
-//     ilock(ip);
-//     if(ip->type == T_DIR && omode != O_RDONLY){
-//       iunlockput(ip);
-//       end_op();
-//       return -1;
-//     }
-//   }
-//
-//   if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){
-//     iunlockput(ip);
-//     end_op();
-//     return -1;
-//   }
-//
-//   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
-//     if(f)
-//       fileclose(f);
-//     iunlockput(ip);
-//     end_op();
-//     return -1;
-//   }
-//
-//   if(ip->type == T_DEVICE){
-//     f->type = FD_DEVICE;
-//     f->major = ip->major;
-//   } else {
-//     f->type = FD_INODE;
-//     f->off = 0;
-//   }
-//   f->ip = ip;
-//   f->readable = !(omode & O_WRONLY);
-//   f->writable = (omode & O_WRONLY) || (omode & O_RDWR);
-//
-//   if((omode & O_TRUNC) && ip->type == T_FILE){
-//     itrunc(ip);
-//   }
-//
-//   iunlock(ip);
-//   end_op();
-//
-//   return fd;
-// }
+pub const InodeKind = enum { Directory, Device, File };
+
+fn MakeDeviceID(comptime ndev: comptime_int) type {
+    const total_bits = @bitSizeOf(usize);
+    const major_bits = std.math.log2_int_ceil(usize, ndev);
+    const minor_bits = total_bits - major_bits;
+
+    return packed struct(usize) {
+        minor: std.meta.Int(.unsigned, minor_bits),
+        major: std.meta.Int(.unsigned, major_bits),
+    };
+}
+
+pub const DeviceID = MakeDeviceID(params.NDEV);
+
+const CreateErrors = error{ FailedGetParentDir, PathExistsWithWrongType, FailedAllocateInode, FailedCreateDot, FailedCreateDotDot, FailedLinkParentDir };
+
+fn create(path: []u8, kind: InodeKind, device: DeviceID) CreateErrors!c.struct_inode {
+    var name: [c.DIRSIZ]u8 = undefined;
+    const directory = c.nameiparent(path, &name) orelse return CreateErrors.FailedGetParentDir;
+
+    c.ilock(directory);
+    defer c.iunlockput(directory);
+
+    if (c.dirlookup(directory, name, 0)) |inode| {
+        c.ilock(inode);
+        errdefer c.iunlockput(inode);
+
+        // already exists
+        if (kind == .File and (inode.*.type == c.T_FILE or inode.*.type == c.T_DEVICE)) {
+            return inode;
+        }
+
+        return CreateErrors.PathExistsWithWrongType;
+    }
+
+    const inode = c.ialloc(device.major, device.minor) orelse return CreateErrors.FailedAllocateInode;
+
+    c.ilock(inode);
+    errdefer {
+        inode.*.nlink = 0;
+        c.iupdate(inode);
+        c.iunlockput(inode);
+    }
+
+    inode.*.major = device.major;
+    inode.*.minor = device.minor;
+    inode.*.nlink = 1;
+    c.iupdate(inode);
+
+    if (kind == .Directory) {
+        // create . and .. entries
+        if (c.dirlink(inode, ".", inode.*.inum) < 0) return CreateErrors.FailedCreateDot;
+        if (c.dirlink(inode, "..", directory.*.inum) < 0) return CreateErrors.FailedCreateDotDot;
+    }
+
+    if (c.dirlink(directory, name, inode.*.inum) < 0) return CreateErrors.FailedLinkParentDir;
+    if (kind == .Directory) {
+        directory.*.nlink += 1; // for ".."
+        c.iupdate(directory);
+    }
+
+    return inode;
+}
+
+pub fn sys_open() u64 {
+    const fd = open() catch |err| {
+        log.print("could not open path: {s}", .{@errorName(err)});
+        return sysargs.errorVal;
+    };
+    return fd;
+}
+
+
+const AccessMode = enum(u2) {
+    read_only = 0,
+    write_only = 1,
+    read_write = 2,
+    invalid = 3, // need to check when you create that it is not that!!!
+
+    pub fn isWritable(self: AccessMode) bool {
+        return self != .read_only;
+    }
+
+    pub fn isReadable(self: AccessMode) bool {
+        return self != .write_only;
+    }
+};
+
+pub const OpenMode = packed struct {
+    access: AccessMode,
+
+    _reserved: u7 = 0,
+
+    create: bool = false, // 0x200
+    trunc: bool = false, // 0x400
+
+    pub fn fromUsize(input: usize) !OpenMode {
+        const size = @bitSizeOf(OpenMode);
+        if (input >> size != 0) {
+            return error.InvalidOpenMode;
+        }
+
+        const raw: std.meta.Int(.unsigned, size) = @intCast(input);
+        const mode: OpenMode = @bitCast(raw);
+        if (mode.access == .invalid) return error.InvalidAccessMode;
+        return mode;
+    }
+};
+
+const OpenErrors = error{FailedGetPath, InvalidPath, OpenDirWithoutOnlyRead, InvalidDeviceMajor, FailedAllocFile };
+pub fn open() OpenErrors!usize {
+    var path: [c.MAXPATH]u8 = undefined;
+    _ = sysargs.getString(.a0, &path) catch return OpenErrors.FailedGetPath;
+
+    const openMode = try OpenMode.fromUsize(sysargs.getInt(.a1));
+
+    c.begin_op();
+    defer c.end_op();
+
+    const inode = if (openMode.create) try create(path, .File, .{ .major = 0, .minor = 0 }) else blk: {
+        const existingInode = c.namei(path) orelse return OpenErrors.InvalidPath;
+
+        c.ilock(existingInode);
+        errdefer c.iunlockput(existingInode);
+
+        if (existingInode.type == c.T_DIR and openMode.access != .read_only) return OpenErrors.OpenDirWithoutOnlyRead; 
+
+        break :blk existingInode;
+    };
+    errdefer c.iput(inode); // only iput on error
+    defer c.iunlock(inode);
+
+    if (inode.type == c.T_DEVICE and (inode.major < 0 or inode.major >= params.NDEV)) return OpenErrors.InvalidDeviceMajor;
+
+    const file = c.filealloc() orelse return OpenErrors.FailedAllocFile;
+    defer c.fileclose(file);
+
+    const fd = try sysargs.fileDescriptorAllocate(file);
+
+    if (inode.type == c.T_DEVICE) {
+        file.*.type = c.FD_DEVICE;
+        file.*.major = inode.major;
+    } else {
+        file.*.type = c.FD_INODE;
+        file.*.off = 0;
+    }
+    file.*.ip = inode;
+    file.*.writable = @intFromBool(openMode.access.isWritable());
+    file.*.readable = @intFromBool(openMode.access.isReadable());
+
+    if (openMode == .trunc and inode.type == c.T_FILE) {
+        c.itrunc(inode);
+    }
+
+    return fd;
+}
 //
 // uint64
 // sys_mkdir(void)
