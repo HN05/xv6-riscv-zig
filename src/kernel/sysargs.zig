@@ -53,9 +53,16 @@ pub fn getString(register: InputRegister, buffer: []u8) !usize {
 
 const GetFileErrors = error{ OutOfRange, NotCreated };
 
+pub fn getFile(register: InputRegister) GetFileErrors!*c.struct_file {
+    var file: *c.struct_file = undefined;
+    _ = try getFileAndDescriptor(register, &file); 
+    return file;
+}
+
+
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
-pub fn getFile(register: InputRegister, fileDestination: ?**c.struct_file) GetFileErrors!usize {
+pub fn getFileAndDescriptor(register: InputRegister, fileDestination: ?**c.struct_file) GetFileErrors!usize {
     const fd = getInt(register);
     if (fd < 0 or fd >= c.NOFILE) {
         return GetFileErrors.OutOfRange;

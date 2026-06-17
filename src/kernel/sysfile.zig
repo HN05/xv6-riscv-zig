@@ -11,8 +11,7 @@ const c = sysargs.c;
 const log = @import("klog.zig");
 
 pub fn sys_dup() u64 {
-    var file: *c.struct_file = undefined;
-    _ = sysargs.getFile(.a0, &file) catch |err| {
+    const file = sysargs.getFile(.a0) catch |err| {
         log.print("could not get file: {s}", .{@errorName(err)});
         return sysargs.errorVal;
     };
@@ -30,8 +29,7 @@ pub fn sys_read() u64 {
     const destination = sysargs.getAddress(.a1);
     const number = sysargs.getInt(.a2);
 
-    var file: *c.struct_file = undefined;
-    _ = sysargs.getFile(.a0, &file) catch |err| {
+    const file = sysargs.getFile(.a0) catch |err| {
         log.print("could not get file: {s}", .{@errorName(err)});
         return sysargs.errorVal;
     };
@@ -44,96 +42,118 @@ pub fn sys_read() u64 {
     }
 }
 
-//
-// uint64
-// sys_write(void)
-// {
-//   struct file *f;
-//   int n;
-//   uint64 p;
-//
-//   argaddr(1, &p);
-//   argint(2, &n);
-//   if(argfd(0, 0, &f) < 0)
-//     return -1;
-//
-//   return filewrite(f, p, n);
-// }
-//
-// uint64
-// sys_close(void)
-// {
-//   int fd;
-//   struct file *f;
-//
-//   if(argfd(0, &fd, &f) < 0)
-//     return -1;
-//   myproc()->ofile[fd] = 0;
-//   fileclose(f);
-//   return 0;
-// }
-//
-// uint64
-// sys_fstat(void)
-// {
-//   struct file *f;
-//   uint64 st; // user pointer to struct stat
-//
-//   argaddr(1, &st);
-//   if(argfd(0, 0, &f) < 0)
-//     return -1;
-//   return filestat(f, st);
-// }
-//
-// // Create the path new as a link to the same inode as old.
-// uint64
-// sys_link(void)
-// {
-//   char name[DIRSIZ], new[MAXPATH], old[MAXPATH];
-//   struct inode *dp, *ip;
-//
-//   if(argstr(0, old, MAXPATH) < 0 || argstr(1, new, MAXPATH) < 0)
-//     return -1;
-//
-//   begin_op();
-//   if((ip = namei(old)) == 0){
-//     end_op();
-//     return -1;
-//   }
-//
-//   ilock(ip);
-//   if(ip->type == T_DIR){
-//     iunlockput(ip);
-//     end_op();
-//     return -1;
-//   }
-//
-//   ip->nlink++;
-//   iupdate(ip);
-//   iunlock(ip);
-//
-//   if((dp = nameiparent(new, name)) == 0)
-//     goto bad;
-//   ilock(dp);
-//   if(dp->dev != ip->dev || dirlink(dp, name, ip->inum) < 0){
-//     iunlockput(dp);
-//     goto bad;
-//   }
-//   iunlockput(dp);
-//   iput(ip);
-//
-//   end_op();
-//
-//   return 0;
-//
-// bad:
-//   ilock(ip);
-//   ip->nlink--;
-//   iupdate(ip);
-//   iunlockput(ip);
-//   end_op();
-//   return -1;
-// }
+pub fn sys_write() u64 {
+    const source = sysargs.getAddress(.a1);
+    const number = sysargs.getInt(.a2);
+
+    const file = sysargs.getFile(.a0) catch |err| {
+        log.print("could not get file: {s}", .{@errorName(err)});
+        return sysargs.errorVal;
+    };
+
+    const result = c.filewrite(file, @intFromPtr(source), @intCast(number));
+    if (result < 0) {
+        return sysargs.errorVal;
+    } else {
+        return @intCast(result);
+    }
+}
+
+pub fn sys_close() u64 {
+    var file: *c.struct_file = undefined;
+    const fd = sysargs.getFileAndDescriptor(.a0, &file) catch |err| {
+        log.print("could not get file: {s}", .{@errorName(err)});
+        return sysargs.errorVal;
+    };
+
+    var files = c.myproc().*.ofile;
+    files[fd] = null;
+    c.fileclose(file);
+    return 0;
+}
+
+pub fn sys_fstat() u64 {
+    const stat = sysargs.getAddress(.a1);
+
+    const file = sysargs.getFile(.a0) catch |err| {
+        log.print("could not get file: {s}", .{@errorName(err)});
+        return sysargs.errorVal;
+    };
+
+    const result = c.filestat(file, @intFromPtr(stat));
+    if (result < 0) {
+        return sysargs.errorVal;
+    } else {
+        return @intCast(result);
+    }
+}
+
+pub fn sys_link() u64 {
+    link() catch |err| {
+        log.print("could not get link: {s}", .{@errorName(err)});
+        return sysargs.errorVal;
+    };
+    return 0;
+}
+
+const LinkErrors = error{
+    FailedGetOldPath,
+    FailedGetNewPath,
+    FailedGetInode,
+    IsDirectory,
+    FailedGetParentDir,
+    NotSameDevice,
+    FailedUpdateNewParDir,
+};
+
+// Create the path new as a link to the same inode as old.
+pub fn link() LinkErrors!void {
+    var old: [c.MAXPATH]u8 = undefined;
+    _ = sysargs.getString(.a0, &old) catch return LinkErrors.FailedGetOldPath;
+
+    var new: [c.MAXPATH]u8 = undefined;
+    _ = sysargs.getString(.a1, &new) catch return LinkErrors.FailedGetNewPath;
+
+    c.begin_op();
+    defer c.end_op();
+
+    const inode = c.namei(&old) orelse return LinkErrors.FailedGetInode;
+    defer c.iput(inode); 
+
+    // increment references to inode
+    {
+        c.ilock(inode);
+        defer c.iunlock(inode);
+
+        if (inode.*.type == c.T_DIR) return LinkErrors.IsDirectory;
+
+        inode.*.nlink += 1;
+        c.iupdate(inode);
+    }
+
+    // Roll back increment if it fails
+    errdefer {
+        c.ilock(inode);
+        inode.*.nlink -= 1;
+        c.iupdate(inode);
+        c.iunlock(inode);
+    }
+
+    // update directory
+    {
+        var name: [c.DIRSIZ]u8 = undefined;
+        const directory = c.nameiparent(&new, &name) orelse return LinkErrors.FailedGetParentDir;
+
+        c.ilock(directory);
+        defer c.iunlockput(directory);
+
+        if (directory.*.dev != inode.*.dev) return LinkErrors.NotSameDevice;
+
+        const result = c.dirlink(directory, &name, inode.*.inum);
+        if (result < 0) return LinkErrors.FailedUpdateNewParDir;
+    }
+}
+
 //
 // // Is the directory dp empty except for "." and ".." ?
 // static int

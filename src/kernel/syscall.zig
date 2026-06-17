@@ -16,13 +16,11 @@ const c = @cImport({
 });
 
 // Prototypes for the functions that handle system calls.
-extern fn sys_fstat() u64;
 extern fn sys_chdir() u64;
 extern fn sys_open() u64;
 extern fn sys_write() u64;
 extern fn sys_mknod() u64;
 extern fn sys_unlink() u64;
-extern fn sys_link() u64;
 extern fn sys_mkdir() u64;
 extern fn sys_close() u64;
 extern fn sys_pipe() u64;
@@ -36,17 +34,17 @@ export fn syscall() void {
 
     const result: u64 = switch (syscallNum) {
         .exit => procsyscalls.sys_exit(),
-        .close => sys_close(),
+        .close => filesyscalls.sys_close(),
         .chdir => sys_chdir(),
         .dup => filesyscalls.sys_dup(),
         .exec => sys_exec(),
         .fork => procsyscalls.sys_fork(),
-        .fstat => sys_fstat(),
+        .fstat => filesyscalls.sys_fstat(),
         .getpid => procsyscalls.sys_getpid(),
         .ringbuf => ringbuf.syscall(),
         .wait => procsyscalls.sys_wait(),
         .kill => procsyscalls.sys_kill(),
-        .link => sys_link(),
+        .link => filesyscalls.sys_link(),
         .mkdir => sys_mkdir(),
         .mknod => sys_mknod(),
         .open => sys_open(),
@@ -56,7 +54,7 @@ export fn syscall() void {
         .sleep => procsyscalls.sys_sleep(),
         .unlink => sys_unlink(),
         .uptime => procsyscalls.sys_uptime(),
-        .write => sys_write(),
+        .write => filesyscalls.sys_write(),
         else => ret: {
             log.print("{d} {s}: unkown sys call {d}\n", .{ process.*.pid, process.*.name, num });
             break :ret ~@as(usize, 0);
