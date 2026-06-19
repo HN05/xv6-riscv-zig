@@ -107,8 +107,8 @@ export fn usertrapret() void {
     // set up trapframe values that uservec will need when
     // the process next traps into the kernel.
     const trapframe: *c.struct_trapframe = process.trapframe;
-    trapframe.kernel_satp = csr.Satp.read(); // kernel page table
-    trapframe.kernel_sp = process.kstack + riscv.pagesize; // process's kernel stack
+    trapframe.kernel_satp = csr.Satp.readInt(); // kernel page table
+    trapframe.kernel_sp = process.kstack + riscv.page_size; // process's kernel stack
     trapframe.kernel_trap = @intFromPtr(&usertrap);
     trapframe.kernel_hartid = riscv.registers.read(.tp); // hartid for cpuid()
 

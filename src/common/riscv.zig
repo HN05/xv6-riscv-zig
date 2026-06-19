@@ -1,5 +1,5 @@
 pub const registers = @import("registers.zig").UserRegister;
-pub const pagesize = 4096; // bytes per page
+pub const page_size = 4096; // bytes per page
 
 // one beyond the highest possible virtual address.
 // MAXVA is actually one bit less than the max allowed by

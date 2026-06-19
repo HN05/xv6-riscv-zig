@@ -12,7 +12,8 @@ const log = @import("debuglog.zig");
 const common = @import("common");
 const params = common.param;
 const kalloc = @import("kalloc.zig");
-const pagesize = common.riscv.pagesize;
+const address = @import("address.zig");
+const page_size = common.riscv.page_size;
 
 pub fn sys_dup() u64 {
     const file = sysargs.getFile(.a0) catch |err| {
@@ -504,13 +505,13 @@ pub fn exec() ExecErrors!u64 {
 
     const userArgArray: [*]*anyopaque = @ptrCast(@alignCast(sysargs.getAddress(.a1) orelse return ExecErrors.FailedGetArgv));
 
-    var argv: [c.MAXARG]?[*:0]u8 = undefined;
+    var argv: [c.MAXARG]?address.PagePtr = undefined;
     @memset(&argv, null);
 
     defer {
         for (argv, 0..) |val, i| {
             if (val != null) {
-                kalloc.kfree(@ptrCast(argv[i]));
+                kalloc.freePage(argv[i].?) catch @panic("could not free memory");
             }
         }
     }
@@ -527,9 +528,9 @@ pub fn exec() ExecErrors!u64 {
             break;
         };
 
-        argv[index] = @ptrCast(kalloc.kalloc() orelse return ExecErrors.FailedGetMem);
+        argv[index] = kalloc.allocPage() orelse return ExecErrors.FailedGetMem;
 
-        _ = sysargs.getStringFromAddres(userArg, argv[index].?[0..pagesize]) catch return ExecErrors.FailedGetArgData;
+        _ = sysargs.getStringFromAddres(userArg, argv[index].?[0..page_size]) catch return ExecErrors.FailedGetArgData;
     }
 
     const result = c.exec(&path, @ptrCast(&argv));

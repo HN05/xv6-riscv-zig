@@ -6,9 +6,9 @@ pub const RINGBUF_SIZE = 16;
 pub const MAX_NAME_LEN = 16;
 pub const MAX_RINGBUFS = 10;
 
-pub const BUF_CAPACITY = RINGBUF_SIZE * riscv.pagesize;
+pub const BUF_CAPACITY = RINGBUF_SIZE * riscv.page_size;
 
-pub const MagicBuf = *align(riscv.pagesize) [BUF_CAPACITY * 2]u8;
+pub const MagicBuf = *align(riscv.page_size) [BUF_CAPACITY * 2]u8;
 
 pub const Book = extern struct {
     read_done: Atomic(u64) = Atomic(u64).init(0),

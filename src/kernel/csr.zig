@@ -1,5 +1,6 @@
 const std = @import("std");
 const registers = @import("common").riscv.registers;
+const address = @import("address.zig");
 
 pub fn FlagOps(comptime Flag: type) type {
     return struct {
@@ -370,11 +371,11 @@ pub const Mtvec = Csr("mtvec");
 
 // Physical Memory Protection
 pub const PmpcfgFlags = enum(usize) {
-    read = 1 << 0,       // read
-    write = 1 << 1,       // write
-    execute = 1 << 2,       // execute
-    NAPOT = 3 << 3,   // naturally aligned power-of-two region
-    lock = 1 << 7,       // lock
+    read = 1 << 0, // read
+    write = 1 << 1, // write
+    execute = 1 << 2, // execute
+    NAPOT = 3 << 3, // naturally aligned power-of-two region
+    lock = 1 << 7, // lock
 };
 pub const Pmpcfg0 = CsrWithFlags("pmpcfg0", PmpcfgFlags);
 
@@ -398,7 +399,30 @@ pub const Pmpaddr0 = struct {
 
 // supervisor address translation and protection;
 // holds the address of the page table.
-pub const Satp = Csr("satp");
+pub const Satp = struct {
+    const base = Csr("satp");
+
+    // use riscv's sv39 page table scheme.
+    pub const SATP_SV39 = @as(usize, 8) << 60;
+
+    pub fn write(pagetable: address.PageTablePtr) void {
+        const ppn = @intFromPtr(pagetable) >> 12;
+        base.write(SATP_SV39 | ppn);
+    }
+
+    pub fn read() address.PageTablePtr {
+        const value = base.read();
+        const ppn = value & ((@as(usize, 1) << 44) - 1);
+        return @ptrFromInt(ppn << 12);
+    }
+
+    pub fn readInt() usize {
+        return base.read();
+    }
+    pub fn writeInt(value: usize) void {
+        return base.write(value);
+    }
+};
 
 pub const Mscratch = Csr("mscratch");
 

@@ -7,13 +7,13 @@ pub inline fn sfence_vma() void {
 pub const pte_t = usize;
 pub const PageTable = [*]usize; // 512 PTEs
 
-pub const pagesize = @import("common").riscv.pagesize;
+pub const page_size = @import("common").riscv.page_size;
 pub const PGSHIFT = 12; // bits of offset within a page
 pub inline fn PGROUNDUP(sz: usize) usize {
-    return ((sz) + pagesize - 1) & ~@as(usize, pagesize - 1);
+    return ((sz) + page_size - 1) & ~@as(usize, page_size - 1);
 }
 pub inline fn PGROUNDDOWN(a: usize) usize {
-    return ((a)) & ~@as(usize, pagesize - 1);
+    return ((a)) & ~@as(usize, page_size - 1);
 }
 pub const PTE_V = @as(u32, 1) << 0; // valid
 pub const PTE_R = @as(u32, 1) << 1;

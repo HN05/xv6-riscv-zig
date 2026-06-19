@@ -35,7 +35,7 @@ pub export fn start() void {
     csr.Mepc.write(@intFromPtr(&main.kmain));
 
     // disable paging for now.
-    csr.Satp.write(0);
+    csr.Satp.writeInt(0);
 
     // delegate all interrupts and exceptions to supervisor mode.
     csr.Medeleg.setAllFlags();
