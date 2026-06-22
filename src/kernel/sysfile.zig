@@ -14,6 +14,7 @@ const params = common.param;
 const kalloc = @import("kalloc.zig");
 const address = @import("address.zig");
 const page_size = common.riscv.page_size;
+const mem = @import("memory.zig");
 
 pub fn sys_dup() u64 {
     const file = sysargs.getFile(.a0) catch |err| {
@@ -31,7 +32,7 @@ pub fn sys_dup() u64 {
 }
 
 pub fn sys_read() u64 {
-    const destination = sysargs.getAddress(.a1);
+    const destination = sysargs.getAddress(.a1) orelse return sysargs.errorVal;
     const number = sysargs.getInt(.a2);
 
     const file = sysargs.getFile(.a0) catch |err| {
@@ -39,7 +40,7 @@ pub fn sys_read() u64 {
         return sysargs.errorVal;
     };
 
-    const result = c.fileread(file, @intFromPtr(destination), @intCast(number));
+    const result = c.fileread(file, destination.toInt(), @intCast(number));
     if (result < 0) {
         return sysargs.errorVal;
     } else {
@@ -48,7 +49,7 @@ pub fn sys_read() u64 {
 }
 
 pub fn sys_write() u64 {
-    const source = sysargs.getAddress(.a1);
+    const source = sysargs.getAddress(.a1) orelse return sysargs.errorVal;
     const number = sysargs.getInt(.a2);
 
     const file = sysargs.getFile(.a0) catch |err| {
@@ -56,7 +57,7 @@ pub fn sys_write() u64 {
         return sysargs.errorVal;
     };
 
-    const result = c.filewrite(file, @intFromPtr(source), @intCast(number));
+    const result = c.filewrite(file, source.toInt(), @intCast(number));
     if (result < 0) {
         return sysargs.errorVal;
     } else {
@@ -79,14 +80,14 @@ pub fn sys_close() u64 {
 }
 
 pub fn sys_fstat() u64 {
-    const stat = sysargs.getAddress(.a1);
+    const stat = sysargs.getAddress(.a1) orelse return sysargs.errorVal;
 
     const file = sysargs.getFile(.a0) catch |err| {
         log.print("could not get file: {s}", .{@errorName(err)});
         return sysargs.errorVal;
     };
 
-    const result = c.filestat(file, @intFromPtr(stat));
+    const result = c.filestat(file, stat.toInt());
     if (result < 0) {
         return sysargs.errorVal;
     } else {
@@ -503,7 +504,7 @@ pub fn exec() ExecErrors!u64 {
     var path: [c.MAXPATH]u8 = undefined;
     _ = sysargs.getString(.a0, &path) catch return ExecErrors.FailedGetProgPath;
 
-    const userArgArray: [*]*anyopaque = @ptrCast(@alignCast(sysargs.getAddress(.a1) orelse return ExecErrors.FailedGetArgv));
+    const userArgArray = sysargs.getAddress(.a1) orelse return ExecErrors.FailedGetArgv;
 
     var argv: [c.MAXARG]?address.PagePtr = undefined;
     @memset(&argv, null);
@@ -517,16 +518,16 @@ pub fn exec() ExecErrors!u64 {
     }
 
     var index: usize = 0;
-    var userArgBuf: ?*anyopaque = null;
+    var userArg: address.UserAddr = .fromInt(0);
     while (true) : (index += 1) {
         if (index >= argv.len) return ExecErrors.TooManyArgs;
 
-        sysargs.fetchAddr(@ptrCast(userArgArray + index), &userArgBuf) catch return ExecErrors.FailedGetArgAddr;
+        sysargs.fetchAddr(userArgArray.add(index * @sizeOf(usize)), &userArg) catch return ExecErrors.FailedGetArgAddr;
 
-        const userArg = userArgBuf orelse {
+        if (userArg.toInt() == 0) {
             argv[index] = null;
             break;
-        };
+        }
 
         argv[index] = kalloc.allocPage() orelse return ExecErrors.FailedGetMem;
 
@@ -549,7 +550,7 @@ pub fn sys_pipe() u64 {
 const PipeErrors = error{ FailedGetFdArray, FailedToAllocPipe, FailedToOutputFirstFd, FailedToOutputSecondFd };
 
 pub fn pipe() !void {
-    const fileDescArray: [*]c_int = @ptrCast(@alignCast(sysargs.getAddress(.a0) orelse return PipeErrors.FailedGetFdArray));
+    const fileDescArray = sysargs.getAddress(.a0) orelse return PipeErrors.FailedGetFdArray;
 
     var readFile: [*c]c.struct_file = undefined;
     var writeFile: [*c]c.struct_file = undefined;
@@ -567,9 +568,8 @@ pub fn pipe() !void {
     var writeFileDescriptor = try sysargs.fileDescriptorAllocate(writeFile);
     errdefer files.*[writeFileDescriptor] = null;
 
-    const result1 = c.copyout(process.*.pagetable, @intFromPtr(fileDescArray), @ptrCast(&readFileDescriptor), @sizeOf(*c.struct_file));
-    if (result1 < 0) return PipeErrors.FailedToOutputFirstFd;
+    const pageTable: address.PageTablePtr = @ptrCast(@alignCast(process.*.pagetable));
 
-    const result2 = c.copyout(process.*.pagetable, @intFromPtr(fileDescArray + 1), @ptrCast(&writeFileDescriptor), @sizeOf(*c.struct_file));
-    if (result2 < 0) return PipeErrors.FailedToOutputSecondFd;
+    mem.copyOut(pageTable, fileDescArray, std.mem.asBytes(&readFileDescriptor)) catch return PipeErrors.FailedToOutputFirstFd;
+    mem.copyOut(pageTable, fileDescArray.add(@sizeOf(c_int)), std.mem.asBytes(&writeFileDescriptor)) catch return PipeErrors.FailedToOutputSecondFd;
 }

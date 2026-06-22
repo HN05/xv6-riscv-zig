@@ -313,7 +313,7 @@ pub fn syscall() u64 {
         return @bitCast(com.ringbuf.intFromErr(com.ringbuf.RingbufError, error.NoAddrGiven));
     };
 
-    ringbuf(name, @enumFromInt(open), @alignCast(@ptrCast(addr))) catch |err| {
+    ringbuf(name, @enumFromInt(open), @ptrFromInt(addr.toInt())) catch |err| {
         return @bitCast(com.ringbuf.intFromErr(com.ringbuf.RingbufError, err));
     };
     return 0;

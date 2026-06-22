@@ -266,171 +266,107 @@ pub fn uvmFree(pgTable: ad.PageTablePtr, size: usize) void {
     freeWalk(pgTable);
 }
 
+// Given a parent process's page table, copy
+// its memory into a child's page table.
+// Copies both the page table and the
+// physical memory.
+// returns 0 on success, -1 on failure.
+// frees any allocated pages on failure.
+pub fn uvmCopy(oldTable: ad.PageTablePtr, newTable: ad.PageTablePtr, size: usize) !void {
+    var pageAddr: ad.UserAddr = .fromInt(0);
+    errdefer uvmUnmap(newTable, .fromInt(0), pageAddr.toInt() / ad.page_size, true);
 
-// // Given a parent process's page table, copy
-// // its memory into a child's page table.
-// // Copies both the page table and the
-// // physical memory.
-// // returns 0 on success, -1 on failure.
-// // frees any allocated pages on failure.
-// int
-// uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
-// {
-//   pte_t *pte;
-//   uint64 pa, i;
-//   uint flags;
-//   char *mem;
-//
-//   for(i = 0; i < sz; i += PGSIZE){
-//     if((pte = walk(old, i, 0)) == 0)
-//       panic("uvmcopy: pte should exist");
-//     if((*pte & PTE_V) == 0)
-//       panic("uvmcopy: page not present");
-//     pa = PTE2PA(*pte);
-//     flags = PTE_FLAGS(*pte);
-//     if((mem = kalloc()) == 0)
-//       goto err;
-//     memmove(mem, (char*)pa, PGSIZE);
-//     if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-//       kfree(mem);
-//       goto err;
-//     }
-//   }
-//   return 0;
-//
-//  err:
-//   uvmunmap(new, 0, i / PGSIZE, 1);
-//   return -1;
-// }
-//
-// // mark a PTE invalid for user access.
-// // used by exec for the user stack guard page.
-// void
-// uvmclear(pagetable_t pagetable, uint64 va)
-// {
-//   pte_t *pte;
-//
-//   pte = walk(pagetable, va, 0);
-//   if(pte == 0)
-//     panic("uvmclear");
-//   *pte &= ~PTE_U;
-// }
-//
-// void* custom_memcpy(void* dst, const void* src, int n) {
-//   typedef uint64 __attribute__((__may_alias__)) u64;
-//   // copy until word aligned (64-bit)
-//   char* dst_pos = dst;
-//   const char* src_pos = src;
-//   while ((n > 0) && ((u64)dst_pos % 8 != 0) && ((u64)src_pos % 8 != 0)) {
-//     *dst_pos++ = *src_pos++;
-//     n--;
-//   }
-//   // copy 64-bit words
-//   u64* dst_pos64 = (u64*)dst_pos;
-//   const u64* src_pos64 = (const u64*)src_pos;
-//   while (n >= 8) {
-//     *dst_pos64++ = *src_pos64++;
-//     n -= 8;
-//   }
-//   // copy remaining bytes
-//   dst_pos = (char*)dst_pos64;
-//   src_pos = (const char*)src_pos64;
-//   while (n > 0) {
-//     *dst_pos++ = *src_pos++;
-//     n--;
-//   }
-//   return dst;
-// }
-//
-// // Copy from kernel to user.
-// // Copy len bytes from src to virtual address dstva in a given page table.
-// // Return 0 on success, -1 on error.
-// int
-// copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
-// {
-//   uint64 n, va0, pa0;
-//
-//   while(len > 0){
-//     va0 = PGROUNDDOWN(dstva);
-//     pa0 = walkaddr(pagetable, va0);
-//     if(pa0 == 0)
-//       return -1;
-//     n = PGSIZE - (dstva - va0);
-//     if(n > len)
-//       n = len;
-//     custom_memcpy((void *)(pa0 + (dstva - va0)), src, n);
-//
-//     len -= n;
-//     src += n;
-//     dstva = va0 + PGSIZE;
-//   }
-//   return 0;
-// }
-//
-// // Copy from user to kernel.
-// // Copy len bytes to dst from virtual address srcva in a given page table.
-// // Return 0 on success, -1 on error.
-// int
-// copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
-// {
-//   uint64 n, va0, pa0;
-//
-//   while(len > 0){
-//     va0 = PGROUNDDOWN(srcva);
-//     pa0 = walkaddr(pagetable, va0);
-//     if(pa0 == 0)
-//       return -1;
-//     n = PGSIZE - (srcva - va0);
-//     if(n > len)
-//       n = len;
-//     custom_memcpy(dst, (void *)(pa0 + (srcva - va0)), n);
-//
-//     len -= n;
-//     dst += n;
-//     srcva = va0 + PGSIZE;
-//   }
-//   return 0;
-// }
-//
-// // Copy a null-terminated string from user to kernel.
-// // Copy bytes to dst from virtual address srcva in a given page table,
-// // until a '\0', or max.
-// // Return 0 on success, -1 on error.
-// int
-// copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
-// {
-//   uint64 n, va0, pa0;
-//   int got_null = 0;
-//
-//   while(got_null == 0 && max > 0){
-//     va0 = PGROUNDDOWN(srcva);
-//     pa0 = walkaddr(pagetable, va0);
-//     if(pa0 == 0)
-//       return -1;
-//     n = PGSIZE - (srcva - va0);
-//     if(n > max)
-//       n = max;
-//
-//     char *p = (char *) (pa0 + (srcva - va0));
-//     while(n > 0){
-//       if(*p == '\0'){
-//         *dst = '\0';
-//         got_null = 1;
-//         break;
-//       } else {
-//         *dst = *p;
-//       }
-//       --n;
-//       --max;
-//       p++;
-//       dst++;
-//     }
-//
-//     srcva = va0 + PGSIZE;
-//   }
-//   if(got_null){
-//     return 0;
-//   } else {
-//     return -1;
-//   }
-// }
+    while (pageAddr.toInt() < size) : (pageAddr.add(ad.page_size)) {
+        const pte = walk(oldTable, pageAddr, false) catch @panic("uvmCopy: pte should exist");
+
+        if (!pte.valid) @panic("uvmCopy: page not present");
+        const oldMemory = pte.asAddress().asPtr(ad.PagePtr);
+
+        const newPage = alloc.allocPage() catch return error.OutOfMemory;
+        errdefer alloc.freePage(newPage);
+
+        @memmove(newPage, oldMemory);
+
+        if (pte.user) {
+            userVirtualMap(newPage, pageAddr, .fromPtr(newPage), ad.page_size, pte.permissions);
+        } else {
+            kernelVirtualMap(newPage, pageAddr, .fromPtr(newPage), ad.page_size, pte.permissions);
+        }
+    }
+}
+
+// mark a PTE invalid for user access.
+// used by exec for the user stack guard page.
+pub fn uvmClearUser(pgTable: ad.PageTablePtr, virtualAddress: ad.UserAddr) void {
+    const pte = walk(pgTable, virtualAddress, false) catch @panic("uvmClear");
+    pte.user = false;
+}
+
+// Copy from kernel to user.
+pub fn copyOut(pgTable: ad.PageTablePtr, destVirtualAddress: ad.UserAddr, source: []const u8) !void {
+    var destination = destVirtualAddress;
+    var remaining = source;
+
+    while (remaining.len > 0) {
+        const virtualAligned = destination.pageAlignDown();
+        const physicalPage = try walkAddr(pgTable, virtualAligned);
+
+        const byteWriteCount = @min(ad.page_size - destination.pageOffset(), remaining.len);
+        const physicalDestination = physicalPage.add(destination.pageOffset());
+
+        @memcpy(physicalDestination.asPtr([*]u8), remaining[0..byteWriteCount]);
+
+        remaining = remaining[byteWriteCount..];
+        destination = destination.add(byteWriteCount);
+    }
+}
+
+// Copy from user to kernel. fills up destination
+pub fn copyIn(pgTable: ad.PageTablePtr, destination: []u8, sourceVirtualAddress: ad.UserAddr) !void {
+    var source = sourceVirtualAddress;
+    var remaining = destination;
+
+    while (remaining.len > 0) {
+        const virtualAligned = source.pageAlignDown();
+        const physicalPage = try walkAddr(pgTable, virtualAligned);
+
+        const byteWriteCount = @min(ad.page_size - source.pageOffset(), remaining.len);
+        const physicalSource = physicalPage.add(source.pageOffset());
+
+        @memcpy(remaining[0..byteWriteCount], physicalSource.asPtr([*]u8));
+
+        remaining = remaining[byteWriteCount..];
+        source = source.add(byteWriteCount);
+    }
+}
+
+// Copy a null-terminated string from user to kernel.
+// Copy bytes to dst from virtual address srcva in a given page table,
+// until a '\0', or fills destination.
+// Not guaranteed to include '\0' and returns str length without it
+pub fn copyInString(pgTable: ad.PageTablePtr, destination: []u8, sourceVirtualAddress: ad.UserAddr) !usize {
+    var length: usize = 0;
+    var remaining = destination;
+    var source = sourceVirtualAddress;
+
+    while (remaining.len > 0) {
+        const virtualAligned = source.pageAlignDown();
+        const physicalPage = try walkAddr(pgTable, virtualAligned);
+
+        const byteWriteCount = @min(ad.page_size - source.pageOffset(), remaining.len);
+
+        const physicalSource = physicalPage.add(source.pageOffset());
+        const charSource = physicalSource.asPtr([*]u8);
+
+        for (0..byteWriteCount) |i| {
+            remaining[i] = charSource[i];
+
+            // check for '\0'
+            if (charSource[i] == 0) return length + i; // not +1 since '\0' does not count
+        }
+        remaining = remaining[byteWriteCount..];
+        source = source.add(byteWriteCount);
+        length += byteWriteCount;
+    }
+    return error.RanOutOfSpace;
+}

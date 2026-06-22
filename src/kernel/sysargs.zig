@@ -1,5 +1,7 @@
 const std = @import("std");
 const log = @import("klog.zig");
+const mem = @import("memory.zig");
+const ad = @import("address.zig");
 
 pub const c = @cImport({
     @cInclude("kernel/types.h");
@@ -36,8 +38,10 @@ const AddressNullErr = error{IsNull};
 // Retrieve an argument as a pointer.
 // Doesn't check for legality, since
 // copyin/copyout will do that.
-pub fn getAddress(register: InputRegister) ?*anyopaque {
-    return @ptrFromInt(getInt(register));
+pub fn getAddress(register: InputRegister) ?ad.UserAddr {
+    const int = getInt(register);
+    if (int == 0) return null;
+    return .fromInt(int);
 }
 
 // Fetch the nth word-sized system call argument as a null-terminated string.
@@ -97,27 +101,28 @@ pub fn fileDescriptorAllocate(file: *c.struct_file) FileDescriptorAllocateErrors
 }
 
 const FetchAddressErrors = error{ AddressOutOfBounds, FailedCopyInToKernel };
+
+fn getProcPageTable() ad.PageTablePtr {
+    const process = c.myproc();
+    return @alignCast(@ptrCast(process.*.pagetable));
+}
+
 // Fetch the pointer at addr from the current process.
-pub fn fetchAddr(address: *anyopaque, destination: *?*anyopaque) FetchAddressErrors!void {
+pub fn fetchAddr(address: ad.UserAddr, destination: *ad.UserAddr) FetchAddressErrors!void {
     const process = c.myproc();
 
-    if (@intFromPtr(address) >= process.*.sz or @intFromPtr(address) + @sizeOf(*anyopaque) > process.*.sz) {
+    // double comparison in case of overflow
+    if (address.toInt() >= process.*.sz or address.toInt() + @sizeOf(*anyopaque) > process.*.sz) {
         return FetchAddressErrors.AddressOutOfBounds;
     }
 
-    const result = c.copyin(process.*.pagetable, @ptrCast(destination), @intFromPtr(address), @sizeOf(*anyopaque));
-    if (result != 0) return FetchAddressErrors.FailedCopyInToKernel;
+    mem.copyIn(getProcPageTable(), std.mem.asBytes(&destination.value), address) catch return FetchAddressErrors.FailedCopyInToKernel;
 }
-
-const FetchStringError = error{failed};
 
 // Fetch the nul-terminated string at addr from the current process.
 // Returns length of string, not including nul, or -1 for error.
-pub fn getStringFromAddres(address: *anyopaque, buffer: []u8) FetchStringError!usize {
-    const process = c.myproc();
-    const result = c.copyinstr(process.*.pagetable, @ptrCast(buffer), @intFromPtr(address), buffer.len);
-    if (result < 0) {
-        return FetchStringError.failed;
-    }
-    return std.mem.indexOfScalar(u8, buffer, 0) orelse buffer.len;
+// may not 
+pub fn getStringFromAddres(address: ad.UserAddr, buffer: []u8) !usize {
+    const pageTable = getProcPageTable();
+    return mem.copyInString(pageTable, buffer, address);
 }
