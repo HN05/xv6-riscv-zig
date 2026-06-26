@@ -4,7 +4,6 @@ const c = @cImport({
     @cInclude("kernel/param.h");
     @cInclude("kernel/types.h");
     @cInclude("kernel/memlayout.h");
-    @cInclude("kernel/elf.h");
     @cInclude("kernel/riscv.h");
     @cInclude("kernel/defs.h");
     @cInclude("kernel/fs.h");
@@ -205,10 +204,10 @@ pub fn uvmFirst(pgTable: ad.PageTablePtr, source: ad.KernAddr, size: usize) void
 pub fn uvmAlloc(pgTable: ad.PageTablePtr, oldSize: usize, newSize: usize, permissions: ad.PagePermissions) !usize {
     if (newSize < oldSize) return oldSize;
 
-    var currentPageVA: ad.UserAddr = .fromInt(oldSize).pageAlignUp();
+    var currentPageVA = ad.UserAddr.fromInt(oldSize).pageAlignUp();
 
-    while (currentPageVA.toInt() < newSize) : (currentPageVA.add(ad.page_size)) {
-        errdefer uvmDealloc(pgTable, currentPageVA.toInt(), oldSize);
+    while (currentPageVA.toInt() < newSize) : (currentPageVA = currentPageVA.add(ad.page_size)) {
+        errdefer _ = uvmDealloc(pgTable, currentPageVA.toInt(), oldSize);
 
         const physicalPage = alloc.allocPage() orelse return error.OutOfMemory;
         @memset(physicalPage, 0);
@@ -232,7 +231,7 @@ pub fn uvmDealloc(pgTable: ad.PageTablePtr, oldSize: usize, newSize: usize) usiz
 
     if (newSizeAligned < oldSizeAligned) {
         const pageCount = (oldSizeAligned - newSizeAligned) / ad.page_size;
-        uvmUnmap(pgTable, newSize, pageCount, true);
+        uvmUnmap(pgTable, .fromInt(newSize), pageCount, true);
     }
 
     return newSize;
@@ -276,7 +275,7 @@ pub fn uvmCopy(oldTable: ad.PageTablePtr, newTable: ad.PageTablePtr, size: usize
     var pageAddr: ad.UserAddr = .fromInt(0);
     errdefer uvmUnmap(newTable, .fromInt(0), pageAddr.toInt() / ad.page_size, true);
 
-    while (pageAddr.toInt() < size) : (pageAddr.add(ad.page_size)) {
+    while (pageAddr.toInt() < size) : (pageAddr = pageAddr.add(ad.page_size)) {
         const pte = walk(oldTable, pageAddr, false) catch @panic("uvmCopy: pte should exist");
 
         if (!pte.valid) @panic("uvmCopy: page not present");
@@ -310,9 +309,9 @@ pub fn copyOut(pgTable: ad.PageTablePtr, destVirtualAddress: ad.UserAddr, source
     while (remaining.len > 0) {
         const virtualAligned = destination.pageAlignDown();
         const physicalPage = try walkAddr(pgTable, virtualAligned);
+        const physicalDestination = physicalPage.add(destination.pageOffset());
 
         const byteWriteCount = @min(ad.page_size - destination.pageOffset(), remaining.len);
-        const physicalDestination = physicalPage.add(destination.pageOffset());
 
         @memcpy(physicalDestination.asPtr([*]u8), remaining[0..byteWriteCount]);
 
@@ -329,9 +328,9 @@ pub fn copyIn(pgTable: ad.PageTablePtr, destination: []u8, sourceVirtualAddress:
     while (remaining.len > 0) {
         const virtualAligned = source.pageAlignDown();
         const physicalPage = try walkAddr(pgTable, virtualAligned);
+        const physicalSource = physicalPage.add(source.pageOffset());
 
         const byteWriteCount = @min(ad.page_size - source.pageOffset(), remaining.len);
-        const physicalSource = physicalPage.add(source.pageOffset());
 
         @memcpy(remaining[0..byteWriteCount], physicalSource.asPtr([*]u8));
 
@@ -369,4 +368,10 @@ pub fn copyInString(pgTable: ad.PageTablePtr, destination: []u8, sourceVirtualAd
         length += byteWriteCount;
     }
     return error.RanOutOfSpace;
+}
+
+pub fn copyOutTerminated(pgTable: ad.PageTablePtr, destVirtualAddress: ad.UserAddr, source: []const u8) !void {
+    try copyOut(pgTable, destVirtualAddress, source);
+    const terminator: [1]u8 = .{0};
+    try copyOut(pgTable, destVirtualAddress.add(source.len), &terminator);
 }

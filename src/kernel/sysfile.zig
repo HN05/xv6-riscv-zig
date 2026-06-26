@@ -15,6 +15,7 @@ const kalloc = @import("kalloc.zig");
 const address = @import("address.zig");
 const page_size = common.riscv.page_size;
 const mem = @import("memory.zig");
+const execFile = @import("exec.zig");
 
 pub fn sys_dup() u64 {
     const file = sysargs.getFile(.a0) catch |err| {
@@ -500,43 +501,43 @@ pub fn sys_exec() u64 {
 
 const ExecErrors = error{ FailedGetProgPath, FailedGetArgv, TooManyArgs, FailedGetArgAddr, FailedGetMem, FailedGetArgData, ExecFail };
 
-pub fn exec() ExecErrors!u64 {
+pub fn exec() !u64 {
     var path: [c.MAXPATH]u8 = undefined;
-    _ = sysargs.getString(.a0, &path) catch return ExecErrors.FailedGetProgPath;
+    const pathLen = sysargs.getString(.a0, &path) catch return ExecErrors.FailedGetProgPath;
 
     const userArgArray = sysargs.getAddress(.a1) orelse return ExecErrors.FailedGetArgv;
 
-    var argv: [c.MAXARG]?address.PagePtr = undefined;
-    @memset(&argv, null);
+    var buffers: [c.MAXARG]?address.PagePtr = undefined;
+    @memset(&buffers, null);
 
     defer {
-        for (argv, 0..) |val, i| {
-            if (val != null) {
-                kalloc.freePage(argv[i].?) catch @panic("could not free memory");
-            }
+        for (buffers) |val| {
+            if (val) |page| {
+                kalloc.freePage(page) catch @panic("could not free memory");
+            } else break;
         }
     }
 
+    var argv: [c.MAXARG][]const u8 = undefined;
     var index: usize = 0;
     var userArg: address.UserAddr = .fromInt(0);
     while (true) : (index += 1) {
-        if (index >= argv.len) return ExecErrors.TooManyArgs;
+        if (index >= buffers.len) return ExecErrors.TooManyArgs;
 
         sysargs.fetchAddr(userArgArray.add(index * @sizeOf(usize)), &userArg) catch return ExecErrors.FailedGetArgAddr;
 
         if (userArg.toInt() == 0) {
-            argv[index] = null;
+            buffers[index] = null;
             break;
         }
 
-        argv[index] = kalloc.allocPage() orelse return ExecErrors.FailedGetMem;
+        buffers[index] = kalloc.allocPage() orelse return ExecErrors.FailedGetMem;
 
-        _ = sysargs.getStringFromAddres(userArg, argv[index].?[0..page_size]) catch return ExecErrors.FailedGetArgData;
+        const argLength = sysargs.getStringFromAddres(userArg, buffers[index].?[0..page_size]) catch return ExecErrors.FailedGetArgData;
+        argv[index] = buffers[index].?[0..argLength];
     }
 
-    const result = c.exec(&path, @ptrCast(&argv));
-    if (result < 0) return ExecErrors.ExecFail;
-    return @intCast(result);
+    return execFile.exec(path[0..pathLen], argv[0..index]);
 }
 
 pub fn sys_pipe() u64 {

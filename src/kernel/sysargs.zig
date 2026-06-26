@@ -120,8 +120,8 @@ pub fn fetchAddr(address: ad.UserAddr, destination: *ad.UserAddr) FetchAddressEr
 }
 
 // Fetch the nul-terminated string at addr from the current process.
-// Returns length of string, not including nul, or -1 for error.
-// may not 
+// Returns length of string, not including nul 
+// may not include null terminator
 pub fn getStringFromAddres(address: ad.UserAddr, buffer: []u8) !usize {
     const pageTable = getProcPageTable();
     return mem.copyInString(pageTable, buffer, address);
