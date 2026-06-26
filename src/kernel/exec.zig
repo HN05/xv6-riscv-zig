@@ -100,10 +100,10 @@ pub fn exec(path: []const u8, argv: [][]const u8) !usize {
     // Make the first inaccessible as a stack guard.
     // Use the second as the user stack.
     const alignedProgramSize = ad.pageRoundUp(programSize);
-    const newProgramSize = try mem.uvmAlloc(@ptrCast(@alignCast(pageTable)), alignedProgramSize, alignedProgramSize + 2 * ad.page_size, .{ .read = true, .write = true });
+    programSize = try mem.uvmAlloc(@ptrCast(@alignCast(pageTable)), alignedProgramSize, alignedProgramSize + 2 * ad.page_size, .{ .read = true, .write = true });
 
-    mem.uvmClearUser(@ptrCast(@alignCast(pageTable)), .fromInt(newProgramSize - 2 * ad.page_size));
-    var stackPointer = newProgramSize;
+    mem.uvmClearUser(@ptrCast(@alignCast(pageTable)), .fromInt(programSize - 2 * ad.page_size));
+    var stackPointer = programSize;
     const stackBase = stackPointer - ad.page_size;
 
     var userStack: [c.MAXARG + 1]usize = undefined;
@@ -148,7 +148,7 @@ pub fn exec(path: []const u8, argv: [][]const u8) !usize {
     // Commit to the user image.
     const oldPageTable = process.*.pagetable;
     process.*.pagetable = pageTable;
-    process.*.sz = newProgramSize;
+    process.*.sz = programSize;
     process.*.trapframe.*.epc = entry; // initial program counter = main
     process.*.trapframe.*.sp = stackPointer;
 
