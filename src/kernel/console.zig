@@ -26,19 +26,19 @@ const c = @cImport({
     @cInclude("kernel/proc.h");
 });
 
-const console_backspace = 0x100;
-const backspace = '\x08';
-const delete = '\x7f';
-
 fn control(char: u8) u8 {
     return char - '@';
 }
 
+const console_backspace = 0x100;
+const backspace = '\x08';
+const delete = '\x7f';
 const input_buf_size = 128;
-const Console = struct {
+
+const InputBuffer = struct {
     lock: SpinLock = .{ .name = "console" },
 
-    buffer: [input_buf_size]u8 = undefined,
+    data: [input_buf_size]u8 = undefined,
 
     // Next buffered byte to return to consoleRead().
     // Advances as user read() consumes input.
@@ -53,7 +53,7 @@ const Console = struct {
     editIndex: usize = 0,
 };
 
-var console: Console = .{};
+var inputBuffer: InputBuffer = .{};
 
 pub fn init() void {
     uart.init();
@@ -96,25 +96,25 @@ fn read(userDestination: c_int, start: c.uint64, n: c_int) callconv(.c) c_int {
     var destination = start;
     var charsLeft = n;
 
-    console.lock.acquire();
-    defer console.lock.release();
+    inputBuffer.lock.acquire();
+    defer inputBuffer.lock.release();
 
     while (charsLeft > 0) {
         // wait until interrupt handler has put some
         // input into cons.buffer.
-        while (console.readIndex == console.writeIndex) {
+        while (inputBuffer.readIndex == inputBuffer.writeIndex) {
             if (c.killed(c.myproc()) != 0) {
                 return -1;
             }
-            console.lock.sleep(&console.readIndex);
+            inputBuffer.lock.sleep(&inputBuffer.readIndex);
         }
 
-        character = console.buffer[console.readIndex % input_buf_size];
-        console.readIndex += 1;
+        character = inputBuffer.data[inputBuffer.readIndex % input_buf_size];
+        inputBuffer.readIndex += 1;
 
         if (character == control('D')) { // end of file
             if (charsLeft < target) {
-                console.readIndex -= 1;
+                inputBuffer.readIndex -= 1;
                 // Save ^D for next time, to make sure
                 // caller gets a 0-byte result.
             }
@@ -149,35 +149,35 @@ fn read(userDestination: c_int, start: c.uint64, n: c_int) callconv(.c) c_int {
 //
 
 pub fn interrupt(character: u8) void {
-    console.lock.acquire();
-    defer console.lock.release();
+    inputBuffer.lock.acquire();
+    defer inputBuffer.lock.release();
 
     switch (character) {
         control('P') => { // print process list
             c.procdump();
         },
         control('U') => { // kill line
-            while (console.editIndex != console.writeIndex) {
+            while (inputBuffer.editIndex != inputBuffer.writeIndex) {
                 // go until newline
-                if (console.buffer[(console.editIndex - 1) % input_buf_size] == '\n') {
+                if (inputBuffer.data[(inputBuffer.editIndex - 1) % input_buf_size] == '\n') {
                     break;
                 }
-                console.editIndex -= 1;
+                inputBuffer.editIndex -= 1;
                 putCharacter(console_backspace);
             }
         },
         delete, control('H') => {
-            if (console.editIndex == console.writeIndex) {
+            if (inputBuffer.editIndex == inputBuffer.writeIndex) {
                 return;
             }
-            console.editIndex -= 1;
+            inputBuffer.editIndex -= 1;
             putCharacter(console_backspace);
         },
         else => {
             if (character == 0) {
                 return;
             }
-            if ((console.editIndex - console.readIndex) >= input_buf_size) {
+            if ((inputBuffer.editIndex - inputBuffer.readIndex) >= input_buf_size) {
                 return;
             }
             // make '\r' into '\n'
@@ -185,14 +185,14 @@ pub fn interrupt(character: u8) void {
             putCharacter(converted_character);
 
             // store for consumption by consoleread().
-            console.buffer[console.editIndex % input_buf_size] = converted_character;
-            console.editIndex += 1;
+            inputBuffer.data[inputBuffer.editIndex % input_buf_size] = converted_character;
+            inputBuffer.editIndex += 1;
 
             if (converted_character == '\n' or converted_character == control('D')) {
                 // wake up consoleread() if a whole line (or end-of-file)
                 // has arrived.
-                console.writeIndex = console.editIndex;
-                c.wakeup(&console.readIndex);
+                inputBuffer.writeIndex = inputBuffer.editIndex;
+                c.wakeup(&inputBuffer.readIndex);
             }
         },
     }
