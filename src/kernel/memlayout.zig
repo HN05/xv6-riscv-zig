@@ -1,4 +1,7 @@
 // Physical memory layout
+const param = @import("common").param;
+pub const KSTACK_PAGENUM = param.KSTACK_PAGENUM;
+
 
 // qemu -machine virt is set up like this,
 // based on qemu's hw/riscv/virt.c:
@@ -71,8 +74,6 @@ pub const PHYSTOP = KERNBASE + 128 * 1024 * 1024;
 // map the trampoline page to the highest address,
 // in both user and kernel space.
 pub const TRAMPOLINE = riscv.max_virtual_address - riscv.page_size;
-
-pub const KSTACK_PAGENUM = 2;
 
 // map kernel stacks beneath the trampoline,
 // each surrounded by invalid guard pages.
