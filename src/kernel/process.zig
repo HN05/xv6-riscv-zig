@@ -5,6 +5,7 @@ const ad = @import("address.zig");
 const ml = @import("memlayout.zig");
 const alloc = @import("kalloc.zig");
 const mem = @import("memory.zig");
+const cpuFile = @import("cpu.zig");
 
 pub const c = @cImport({
     @cInclude("kernel/types.h");
@@ -20,7 +21,7 @@ pub const c = @cImport({
     @cInclude("kernel/fcntl.h");
 });
 
-pub var processTable: [param.NPROC]Process  = undefined;
+pub var processTable: [param.NPROC]Process = undefined;
 
 // init process table
 comptime {
@@ -129,7 +130,6 @@ pub const Context = extern struct {
     s11: u64,
 };
 
-
 pub const ProcessState = enum {
     unused,
     used,
@@ -165,13 +165,11 @@ pub const Process = struct {
     name: [16]u8 = undefined, // for debugging
     ownedRingbufsCount: usize = undefined, // Count of ringbufs owned by this process
 
-    //   pub fn getCurrent() ?*Process {
-    //       lk.
-    //
-    // push_off();
-    // struct cpu *c = mycpu();
-    // struct proc *p = c->proc;
-    // pop_off();
-    // return p;
-    //   }
+    pub fn getCurrent() ?*Process {
+        cpuFile.Cpu.pushOff();
+        const cpu = cpuFile.Cpu.getCurrent();
+        const proc = cpu.runningProcess;
+        cpuFile.Cpu.popOff();
+        return proc;
+    }
 };
