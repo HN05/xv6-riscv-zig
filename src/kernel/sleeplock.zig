@@ -17,8 +17,9 @@ const c = @cImport({
     @cInclude("kernel/proc.h");
 });
 
+const SleepLock = @This();
 // Long-term locks for processes
-pub const Sleeplock = struct {
+
     isLocked: bool = false, // Is the lock held?
     spinlock: SpinLock = .{ .name = "sleep lock" }, // spinlock protecting this sleep lock
     pid: ?usize = null,
@@ -26,7 +27,7 @@ pub const Sleeplock = struct {
     // debug info
     name: ?[]const u8 = null,
 
-    pub fn acquire(self: *Sleeplock) void {
+    pub fn acquire(self: *SleepLock) void {
         self.spinlock.acquire();
         defer self.spinlock.release();
 
@@ -38,7 +39,7 @@ pub const Sleeplock = struct {
         self.pid = c.myproc().*.pid;
     }
 
-    pub fn release(self: *Sleeplock) void {
+    pub fn release(self: *SleepLock) void {
         self.spinlock.acquire();
         defer self.spinlock.release();
 
@@ -48,13 +49,13 @@ pub const Sleeplock = struct {
         c.wakeup(self);
     }
 
-    pub fn isHolding(self: *Sleeplock) bool {
+    pub fn isHolding(self: *SleepLock) bool {
         self.spinlock.acquire();
         defer self.spinlock.release();
 
         return self.isLocked and (self.pid == c.myproc().*.pid);
     }
-};
+
 
 export fn initsleeplock(sleeplock: *c.struct_sleeplock, name: [*c]u8) void {
     CSpinlock.init(@ptrCast(&sleeplock.lk), "sleep lock");
