@@ -38,11 +38,6 @@ fn loadSegment(pageTable: ad.PageTablePtr, virtualAddress: ad.UserAddr, inode: *
 pub fn exec(path: []const u8, argv: [][]const u8) !usize {
     if (argv.len > c.MAXARG) return error.TooManyArguments;
 
-    //  TODO: remove
-    var nullTermPath: [c.MAXPATH]u8 = undefined;
-    @memcpy(&nullTermPath, path);
-    nullTermPath[path.len] = 0;
-
     const process = c.myproc();
 
     const pageTable = c.proc_pagetable(process) orelse return error.CouldNotGetProcessPgTable;
@@ -57,7 +52,13 @@ pub fn exec(path: []const u8, argv: [][]const u8) !usize {
         c.begin_op();
         defer c.end_op();
 
-        inode = c.namei(&nullTermPath) orelse return error.CouldResolvePath;
+        {
+            //  TODO: remove
+            var nullTermPath: [c.MAXPATH]u8 = undefined;
+            @memcpy(&nullTermPath, path);
+            nullTermPath[path.len] = 0;
+            inode = c.namei(&nullTermPath) orelse return error.CouldResolvePath;
+        }
         c.ilock(inode);
         defer c.iunlockput(inode);
 
@@ -86,10 +87,10 @@ pub fn exec(path: []const u8, argv: [][]const u8) !usize {
             const virtualAddress: ad.UserAddr = .fromInt(programHeader.virtualAddress);
             if (!virtualAddress.isPageAligned()) return error.MemoryNotPageAligned;
 
-            const newProgramSize = try mem.uvmAlloc(@alignCast(@ptrCast(pageTable)), programSize, newSize[0], programHeader.flags.toPagePermissions());
+            const newProgramSize = try mem.uvmAlloc(@ptrCast(@alignCast(pageTable)), programSize, newSize[0], programHeader.flags.toPagePermissions());
             programSize = newProgramSize;
 
-            try loadSegment(@alignCast(@ptrCast(pageTable)), virtualAddress, inode, programHeader.offset, programHeader.fileSize);
+            try loadSegment(@ptrCast(@alignCast(pageTable)), virtualAddress, inode, programHeader.offset, programHeader.fileSize);
         }
     }
 
@@ -99,9 +100,9 @@ pub fn exec(path: []const u8, argv: [][]const u8) !usize {
     // Make the first inaccessible as a stack guard.
     // Use the second as the user stack.
     const alignedProgramSize = ad.pageRoundUp(programSize);
-    const newProgramSize = try mem.uvmAlloc(@alignCast(@ptrCast(pageTable)), alignedProgramSize, alignedProgramSize + 2 * ad.page_size, .{ .read = true, .write = true });
+    const newProgramSize = try mem.uvmAlloc(@ptrCast(@alignCast(pageTable)), alignedProgramSize, alignedProgramSize + 2 * ad.page_size, .{ .read = true, .write = true });
 
-    mem.uvmClearUser(@alignCast(@ptrCast(pageTable)), .fromInt(newProgramSize - 2 * ad.page_size));
+    mem.uvmClearUser(@ptrCast(@alignCast(pageTable)), .fromInt(newProgramSize - 2 * ad.page_size));
     var stackPointer = newProgramSize;
     const stackBase = stackPointer - ad.page_size;
 
@@ -114,7 +115,7 @@ pub fn exec(path: []const u8, argv: [][]const u8) !usize {
 
         if (stackPointer < stackBase) return error.OutOfArgumentSpace;
 
-        try mem.copyOutTerminated(@alignCast(@ptrCast(pageTable)), .fromInt(stackPointer), arg);
+        try mem.copyOutTerminated(@ptrCast(@alignCast(pageTable)), .fromInt(stackPointer), arg);
         userStack[index] = stackPointer;
     }
     userStack[argv.len] = 0;
@@ -124,7 +125,7 @@ pub fn exec(path: []const u8, argv: [][]const u8) !usize {
     stackPointer -= stackPointer % 16;
     if (stackPointer < stackBase) return error.OutOfArgumentPointerSpace;
 
-    try mem.copyOut(@alignCast(@ptrCast(pageTable)), .fromInt(stackPointer), std.mem.sliceAsBytes(userStack[0..(argv.len+1)]));
+    try mem.copyOut(@ptrCast(@alignCast(pageTable)), .fromInt(stackPointer), std.mem.sliceAsBytes(userStack[0..(argv.len + 1)]));
 
     // arguments to user main(argc, argv)
     // argc is returned via the system call return
