@@ -24,8 +24,7 @@ pub const c = @cImport({
 
 pub var processTable: [param.NPROC]Process = blk: {
     var table: [processTable.len]Process = undefined;
-    var index: usize = 0;
-    while (index < table.len.len) : (index += 1) {
+    for (0..table.len) |index| {
         table[index] = .{ .kernelStackAddress = ml.KSTACK(index) };
     }
     break :blk table;
@@ -47,14 +46,14 @@ pub var waitLock: lk.SpinLock = .{ .name = "wait_lock" };
 // Map it high in memory, followed by an invalid
 // guard page.
 pub fn mapKernelStacks(kernelPageTable: ad.PageTablePtr) void {
-    comptime var index = 0;
-    inline while (index < processTable.len) : (index += 1) {
+    inline for (0.. processTable.len) |index| {
         const virtualAddress = ml.KSTACK(index);
 
-        inline for (ml.KSTACK_PAGENUM) |i| {
-            const page = alloc.allocPage() orelse @panic("could not map stacks: kalloc");
+        inline for (0..ml.KSTACK_PAGENUM) |i| {
+            const virtual_page_address = virtualAddress.add(i * ad.page_size);
 
-            mem.kernelVirtualMap(kernelPageTable, virtualAddress.add(i * ad.page_size), .fromPtr(page), ad.page_size, .{ .write = true, .read = true });
+            const physical_page = alloc.allocPage() orelse @panic("could not map stacks: kalloc");
+            mem.kernelVirtualMap(kernelPageTable, virtual_page_address, .fromPtr(physical_page), ad.page_size, .{ .write = true, .read = true });
         }
     }
 }
