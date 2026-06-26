@@ -38,7 +38,7 @@ const AddressNullErr = error{IsNull};
 // Retrieve an argument as a pointer.
 // Doesn't check for legality, since
 // copyin/copyout will do that.
-pub fn getAddress(register: InputRegister) ?ad.UserAddr {
+pub fn getAddress(register: InputRegister) ?ad.UserAddress {
     const int = getInt(register);
     if (int == 0) return null;
     return .fromInt(int);
@@ -108,7 +108,7 @@ fn getProcPageTable() ad.PageTablePtr {
 }
 
 // Fetch the pointer at addr from the current process.
-pub fn fetchAddr(address: ad.UserAddr, destination: *ad.UserAddr) FetchAddressErrors!void {
+pub fn fetchAddr(address: ad.UserAddress, destination: *ad.UserAddress) FetchAddressErrors!void {
     const process = c.myproc();
 
     // double comparison in case of overflow
@@ -122,7 +122,7 @@ pub fn fetchAddr(address: ad.UserAddr, destination: *ad.UserAddr) FetchAddressEr
 // Fetch the nul-terminated string at addr from the current process.
 // Returns length of string, not including nul 
 // may not include null terminator
-pub fn getStringFromAddres(address: ad.UserAddr, buffer: []u8) !usize {
+pub fn getStringFromAddres(address: ad.UserAddress, buffer: []u8) !usize {
     const pageTable = getProcPageTable();
     return mem.copyInString(pageTable, buffer, address);
 }

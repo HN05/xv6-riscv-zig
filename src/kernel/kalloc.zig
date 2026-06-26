@@ -48,8 +48,8 @@ pub export fn kalloc() ?*anyopaque {
 
 /// Frees page
 /// Failures are in the case of a bad given address
-pub fn freePage(page: ad.PagePtr) !void {
-    const pa = ad.KernAddr.fromPtr(page);
+pub fn freePage(page: ad.PagePointer) !void {
+    const pa = ad.KernelAddress.fromPtr(page);
     if (pa.isOutOfRange()) {
         return error.AddressOutOfRange;
     }
@@ -65,7 +65,7 @@ pub fn freePage(page: ad.PagePtr) !void {
     freelist = b;
 }
 
-pub fn allocPage() ?ad.PagePtr {
+pub fn allocPage() ?ad.PagePointer {
     lock.acquire();
     defer lock.release();
 

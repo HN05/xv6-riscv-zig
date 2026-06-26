@@ -507,7 +507,7 @@ pub fn exec() !u64 {
 
     const userArgArray = sysargs.getAddress(.a1) orelse return ExecErrors.FailedGetArgv;
 
-    var buffers: [c.MAXARG]?address.PagePtr = undefined;
+    var buffers: [c.MAXARG]?address.PagePointer = undefined;
     @memset(&buffers, null);
 
     defer {
@@ -520,7 +520,7 @@ pub fn exec() !u64 {
 
     var argv: [c.MAXARG][]const u8 = undefined;
     var index: usize = 0;
-    var userArg: address.UserAddr = .fromInt(0);
+    var userArg: address.UserAddress = .fromInt(0);
     while (true) : (index += 1) {
         if (index >= buffers.len) return ExecErrors.TooManyArgs;
 

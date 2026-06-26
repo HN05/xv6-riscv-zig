@@ -12,7 +12,7 @@ const com = @import("common");
 const page_size = com.riscv.page_size;
 const SpinLock = @import("spinlock.zig").SpinLock;
 const kalloc = @import("kalloc.zig");
-const PagePtr = @import("address.zig").PagePtr;
+const PagePointer = @import("address.zig").PagePointer;
 const Book = com.ringbuf.Book;
 const MagicBuf = com.ringbuf.MagicBuf;
 const Rb = com.ringbuf;
@@ -33,7 +33,7 @@ var ringbufs: [MAX_RINGBUFS]Ringbuf = [_]Ringbuf{.{}} ** MAX_RINGBUFS;
 const Owner = extern struct {
     proc: ?*c.struct_proc = null,
     vbuf: ?MagicBuf = null,
-    vbook: ?PagePtr = null,
+    vbook: ?PagePointer = null,
 };
 
 const Ringbuf = extern struct {
@@ -42,8 +42,8 @@ const Ringbuf = extern struct {
     refcount: u32 = 0,
     owners: [2]Owner = [_]Owner{.{}} ** 2,
     name_buf: [MAX_NAME_LEN]u8 = [_]u8{0} ** MAX_NAME_LEN,
-    buf_pages: [RINGBUF_SIZE]?PagePtr = [_]?PagePtr{null} ** 16,
-    book_page: ?PagePtr = null,
+    buf_pages: [RINGBUF_SIZE]?PagePointer = [_]?PagePointer{null} ** 16,
+    book_page: ?PagePointer = null,
 
     /// Activates this ringbuf
     /// Refcount should be 0 (deactivated)
@@ -69,7 +69,7 @@ const Ringbuf = extern struct {
                 self.book_page = null;
             }
             for (self.buf_pages[0..alloced_page_count]) |*buf_pg_ptr| {
-                const buf: PagePtr = buf_pg_ptr.*.?;
+                const buf: PagePointer = buf_pg_ptr.*.?;
                 kalloc.freePage(buf) catch @panic("failed to free page");
                 buf_pg_ptr.* = null;
             }

@@ -21,7 +21,7 @@ pub const c = @cImport({
 // va must be page-aligned
 // and the pages from va to va+sz must already be mapped.
 // Returns 0 on success, -1 on failure.
-fn loadSegment(pageTable: ad.PageTablePtr, virtualAddress: ad.UserAddr, inode: *c.struct_inode, offset: u64, size: u64) !void {
+fn loadSegment(pageTable: ad.PageTablePtr, virtualAddress: ad.UserAddress, inode: *c.struct_inode, offset: u64, size: u64) !void {
     var currentPage: u32 = 0;
     while (currentPage < size) : (currentPage += ad.page_size) {
         const physicalAddress = mem.walkAddr(pageTable, virtualAddress.add(currentPage)) catch @panic("loadSegment: address should exist");
@@ -84,7 +84,7 @@ pub fn exec(path: []const u8, argv: [][]const u8) !usize {
             const newSize = @addWithOverflow(programHeader.virtualAddress, programHeader.memorySize);
             if (newSize[1] == 1) return error.MemoryAddressOverflow;
 
-            const virtualAddress: ad.UserAddr = .fromInt(programHeader.virtualAddress);
+            const virtualAddress: ad.UserAddress = .fromInt(programHeader.virtualAddress);
             if (!virtualAddress.isPageAligned()) return error.MemoryNotPageAligned;
 
             const newProgramSize = try mem.uvmAlloc(@ptrCast(@alignCast(pageTable)), programSize, newSize[0], programHeader.flags.toPagePermissions());

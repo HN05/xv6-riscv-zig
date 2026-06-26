@@ -16,14 +16,11 @@ pub fn pageRoundUp(val: usize) usize {
     return (val + page_size - 1) & ~@as(usize, page_size - 1);
 }
 
-pub const UserAddr = Addr(.user);
-pub const KernAddr = Addr(.kernel);
+pub const UserAddress = Address(.user);
+pub const KernelAddress = Address(.kernel);
 
-pub const PagePtr = *align(page_size) [page_size]u8;
-pub const ConstPagePtr = *align(page_size) const [page_size]u8;
-
-pub const PageSlice = []align(page_size) u8;
-pub const ConstPageSlice = []align(page_size) const u8;
+pub const PagePointer = *align(page_size) [page_size]u8;
+pub const ConstPagePointer = *align(page_size) const [page_size]u8;
 
 pub const PagePermissions = packed struct(u3) {
     read: bool = false,
@@ -61,11 +58,11 @@ pub const PageTableEntry = packed struct(usize) {
         return self.permissions == PagePermissions{}; // r, w and x are not set for branch
     }
 
-    pub fn asAddress(self: *PageTableEntry) KernAddr {
-        return KernAddr.fromInt(@as(usize, self.ppn) << 12);
+    pub fn asAddress(self: *PageTableEntry) KernelAddress {
+        return KernelAddress.fromInt(@as(usize, self.ppn) << 12);
     }
 
-    pub fn fromAddress(address: KernAddr) PageTableEntry {
+    pub fn fromAddress(address: KernelAddress) PageTableEntry {
         return .{ .ppn = @intCast(address.toInt() >> 12) };
     }
 };
@@ -74,18 +71,18 @@ pub const page_table_entry_count = page_size / @sizeOf(PageTableEntry);
 pub const PageTable = [page_table_entry_count]PageTableEntry; // 512 PTEs in one page
 pub const PageTablePtr = *align(page_size) PageTable;
 
-pub const AddrKind = enum {
+pub const AddressKind = enum {
     user,
     kernel,
 };
 
-pub fn Addr(comptime kind: AddrKind) type {
+pub fn Address(comptime addressKind: AddressKind) type {
     return struct {
         value: usize,
 
         const Self = @This();
 
-        pub const addr_kind = kind;
+        pub const kind = addressKind;
 
         pub fn fromInt(value: usize) Self {
             return .{ .value = value };
@@ -96,7 +93,7 @@ pub fn Addr(comptime kind: AddrKind) type {
         }
 
         pub fn asPtr(self: Self, comptime Ptr: type) Ptr {
-            if (addr_kind == .user) {
+            if (kind == .user) {
                 @panic("can't dereference user pointer");
             }
 
@@ -118,7 +115,7 @@ pub fn Addr(comptime kind: AddrKind) type {
 
         pub fn isOutOfRange(self: Self) bool {
             const val = self.toInt();
-            switch (addr_kind) {
+            switch (kind) {
                 .user => return val >= riscv.max_virtual_address,
                 .kernel => return val < @intFromPtr(kalloc.end) or val >= memlayout.PHYSTOP,
             }
@@ -144,11 +141,11 @@ pub fn Addr(comptime kind: AddrKind) type {
             return Self.fromInt(pageRoundUp(self.toInt()));
         }
 
-        pub fn pagePtrAlignDown(self: Self) PagePtr {
+        pub fn pagePtrAlignDown(self: Self) PagePointer {
             return @ptrFromInt(self.pageAlignDown().toInt());
         }
 
-        pub fn pagePtrAlignUp(self: Self) PagePtr {
+        pub fn pagePtrAlignUp(self: Self) PagePointer {
             return @ptrFromInt(self.pageAlignUp().toInt());
         }
 

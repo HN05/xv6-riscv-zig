@@ -30,7 +30,7 @@ pub inline fn sfence_vma() void {
 // physical addresses starting at pa. va and size might not
 // be page-aligned.
 // allocate a needed page-table page.
-fn virtualMap(pgTable: ad.PageTablePtr, virtualAddress: ad.UserAddr, physicalAddress: ad.KernAddr, size: usize, permissions: ad.PagePermissions, isUser: bool) void {
+fn virtualMap(pgTable: ad.PageTablePtr, virtualAddress: ad.UserAddress, physicalAddress: ad.KernelAddress, size: usize, permissions: ad.PagePermissions, isUser: bool) void {
     if (size == 0) @panic("ke: kerenelVirtualMap");
     const pageCount = virtualAddress.coveringPages(size);
 
@@ -46,11 +46,11 @@ fn virtualMap(pgTable: ad.PageTablePtr, virtualAddress: ad.UserAddr, physicalAdd
     }
 }
 
-pub fn kernelVirtualMap(pgTable: ad.PageTablePtr, virtualAddress: ad.UserAddr, physicalAddress: ad.KernAddr, size: usize, permissions: ad.PagePermissions) void {
+pub fn kernelVirtualMap(pgTable: ad.PageTablePtr, virtualAddress: ad.UserAddress, physicalAddress: ad.KernelAddress, size: usize, permissions: ad.PagePermissions) void {
     virtualMap(pgTable, virtualAddress, physicalAddress, size, permissions, false);
 }
 
-pub fn userVirtualMap(pgTable: ad.PageTablePtr, virtualAddress: ad.UserAddr, physicalAddress: ad.KernAddr, size: usize, permissions: ad.PagePermissions) void {
+pub fn userVirtualMap(pgTable: ad.PageTablePtr, virtualAddress: ad.UserAddress, physicalAddress: ad.KernelAddress, size: usize, permissions: ad.PagePermissions) void {
     virtualMap(pgTable, virtualAddress, physicalAddress, size, permissions, true);
 }
 
@@ -72,7 +72,7 @@ pub const WalkError = error{
     OutOfMemory,
 };
 
-pub fn walk(pgTable: ad.PageTablePtr, virtualAddress: ad.UserAddr, doAlloc: bool) WalkError!*ad.PageTableEntry {
+pub fn walk(pgTable: ad.PageTablePtr, virtualAddress: ad.UserAddress, doAlloc: bool) WalkError!*ad.PageTableEntry {
     if (virtualAddress.isOutOfRange()) @panic("walk");
 
     var level: ad.PageTableIndex = .root;
@@ -147,7 +147,7 @@ pub fn kernelMemoryHartInit() void {
 
 // Look up a virtual address, return the physical address,
 // Can only be used to look up user pages.
-pub fn walkAddr(pgTable: ad.PageTablePtr, virtualAddress: ad.UserAddr) !ad.KernAddr {
+pub fn walkAddr(pgTable: ad.PageTablePtr, virtualAddress: ad.UserAddress) !ad.KernelAddress {
     if (virtualAddress.isOutOfRange()) return error.OutOfRange;
 
     const pte = try walk(pgTable, virtualAddress, false);
@@ -159,7 +159,7 @@ pub fn walkAddr(pgTable: ad.PageTablePtr, virtualAddress: ad.UserAddr) !ad.KernA
 // Remove npages of mappings starting from va. va must be
 // page-aligned. The mappings must exist.
 // Optionally free the physical memory.
-pub fn uvmUnmap(pgTable: ad.PageTablePtr, startPage: ad.UserAddr, numPages: usize, doFree: bool) void {
+pub fn uvmUnmap(pgTable: ad.PageTablePtr, startPage: ad.UserAddress, numPages: usize, doFree: bool) void {
     if (!startPage.isPageAligned()) @panic("uvmUnmap: not aligned");
 
     for (0..numPages) |i| {
@@ -172,7 +172,7 @@ pub fn uvmUnmap(pgTable: ad.PageTablePtr, startPage: ad.UserAddr, numPages: usiz
         if (pte.isBranch()) @panic("uvmUnmap: not a leaf");
 
         if (doFree) {
-            alloc.freePage(pte.asAddress().asPtr(ad.PagePtr)) catch @panic("uvmUnmap: free page");
+            alloc.freePage(pte.asAddress().asPtr(ad.PagePointer)) catch @panic("uvmUnmap: free page");
         }
         pte.* = .{};
     }
@@ -189,7 +189,7 @@ pub fn uvmCreate() !ad.PageTablePtr {
 // Load the user initcode into address 0 of pagetable,
 // for the very first process.
 // sz must be less than a page.
-pub fn uvmFirst(pgTable: ad.PageTablePtr, source: ad.KernAddr, size: usize) void {
+pub fn uvmFirst(pgTable: ad.PageTablePtr, source: ad.KernelAddress, size: usize) void {
     if (size >= ad.page_size) @panic("uvmfirst: more than a page");
 
     const page = alloc.kalloc() catch @panic("out of mem uvmFirst");
@@ -204,7 +204,7 @@ pub fn uvmFirst(pgTable: ad.PageTablePtr, source: ad.KernAddr, size: usize) void
 pub fn uvmAlloc(pgTable: ad.PageTablePtr, oldSize: usize, newSize: usize, permissions: ad.PagePermissions) !usize {
     if (newSize < oldSize) return oldSize;
 
-    var currentPageVA = ad.UserAddr.fromInt(oldSize).pageAlignUp();
+    var currentPageVA = ad.UserAddress.fromInt(oldSize).pageAlignUp();
 
     while (currentPageVA.toInt() < newSize) : (currentPageVA = currentPageVA.add(ad.page_size)) {
         errdefer _ = uvmDealloc(pgTable, currentPageVA.toInt(), oldSize);
@@ -272,14 +272,14 @@ pub fn uvmFree(pgTable: ad.PageTablePtr, size: usize) void {
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
 pub fn uvmCopy(oldTable: ad.PageTablePtr, newTable: ad.PageTablePtr, size: usize) !void {
-    var pageAddr: ad.UserAddr = .fromInt(0);
+    var pageAddr: ad.UserAddress = .fromInt(0);
     errdefer uvmUnmap(newTable, .fromInt(0), pageAddr.toInt() / ad.page_size, true);
 
     while (pageAddr.toInt() < size) : (pageAddr = pageAddr.add(ad.page_size)) {
         const pte = walk(oldTable, pageAddr, false) catch @panic("uvmCopy: pte should exist");
 
         if (!pte.valid) @panic("uvmCopy: page not present");
-        const oldMemory = pte.asAddress().asPtr(ad.PagePtr);
+        const oldMemory = pte.asAddress().asPtr(ad.PagePointer);
 
         const newPage = alloc.allocPage() catch return error.OutOfMemory;
         errdefer alloc.freePage(newPage);
@@ -296,13 +296,13 @@ pub fn uvmCopy(oldTable: ad.PageTablePtr, newTable: ad.PageTablePtr, size: usize
 
 // mark a PTE invalid for user access.
 // used by exec for the user stack guard page.
-pub fn uvmClearUser(pgTable: ad.PageTablePtr, virtualAddress: ad.UserAddr) void {
+pub fn uvmClearUser(pgTable: ad.PageTablePtr, virtualAddress: ad.UserAddress) void {
     const pte = walk(pgTable, virtualAddress, false) catch @panic("uvmClear");
     pte.user = false;
 }
 
 // Copy from kernel to user.
-pub fn copyOut(pgTable: ad.PageTablePtr, destVirtualAddress: ad.UserAddr, source: []const u8) !void {
+pub fn copyOut(pgTable: ad.PageTablePtr, destVirtualAddress: ad.UserAddress, source: []const u8) !void {
     var destination = destVirtualAddress;
     var remaining = source;
 
@@ -321,7 +321,7 @@ pub fn copyOut(pgTable: ad.PageTablePtr, destVirtualAddress: ad.UserAddr, source
 }
 
 // Copy from user to kernel. fills up destination
-pub fn copyIn(pgTable: ad.PageTablePtr, destination: []u8, sourceVirtualAddress: ad.UserAddr) !void {
+pub fn copyIn(pgTable: ad.PageTablePtr, destination: []u8, sourceVirtualAddress: ad.UserAddress) !void {
     var source = sourceVirtualAddress;
     var remaining = destination;
 
@@ -343,7 +343,7 @@ pub fn copyIn(pgTable: ad.PageTablePtr, destination: []u8, sourceVirtualAddress:
 // Copy bytes to dst from virtual address srcva in a given page table,
 // until a '\0', or fills destination.
 // Not guaranteed to include '\0' and returns str length without it
-pub fn copyInString(pgTable: ad.PageTablePtr, destination: []u8, sourceVirtualAddress: ad.UserAddr) !usize {
+pub fn copyInString(pgTable: ad.PageTablePtr, destination: []u8, sourceVirtualAddress: ad.UserAddress) !usize {
     var length: usize = 0;
     var remaining = destination;
     var source = sourceVirtualAddress;
@@ -370,7 +370,7 @@ pub fn copyInString(pgTable: ad.PageTablePtr, destination: []u8, sourceVirtualAd
     return error.RanOutOfSpace;
 }
 
-pub fn copyOutTerminated(pgTable: ad.PageTablePtr, destVirtualAddress: ad.UserAddr, source: []const u8) !void {
+pub fn copyOutTerminated(pgTable: ad.PageTablePtr, destVirtualAddress: ad.UserAddress, source: []const u8) !void {
     try copyOut(pgTable, destVirtualAddress, source);
     const terminator: [1]u8 = .{0};
     try copyOut(pgTable, destVirtualAddress.add(source.len), &terminator);
