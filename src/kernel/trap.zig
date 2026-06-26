@@ -7,6 +7,7 @@ const print = @import("klog.zig").print;
 const plic = @import("plic.zig");
 const ticks = @import("ticks.zig").ticks;
 const ad = @import("address.zig");
+const interrupts = @import("interrupts.zig");
 
 const c = @cImport({
     @cInclude("kernel/types.h");
@@ -60,7 +61,7 @@ export fn usertrap() void {
 
             // an interrupt will change sepc, scause, and sstatus,
             // so enable only now that we're done with those registers.
-            csr.enableInterrupts();
+            interrupts.enable();
 
             c.syscall();
         },
@@ -98,7 +99,7 @@ export fn usertrapret() void {
     // we're about to switch the destination of traps from
     // kerneltrap() to usertrap(), so turn off interrupts until
     // we're back in user space, where usertrap() is correct.
-    csr.disableInterrupts();
+    interrupts.disable();
 
     // send syscalls, interrupts, and exceptions to uservec in trampoline.S
     const trampoline_uservec = memlayout.TRAMPOLINE + (uservecAddr - trampolineAddr);
@@ -110,7 +111,7 @@ export fn usertrapret() void {
     trapframe.kernel_satp = csr.Satp.readInt(); // kernel page table
     trapframe.kernel_sp = process.kstack + memlayout.KSTACK_PAGENUM * riscv.page_size; // process's kernel stack
     trapframe.kernel_trap = @intFromPtr(&usertrap);
-    trapframe.kernel_hartid = riscv.registers.read(.tp); // hartid for cpuid()
+    trapframe.kernel_hartid = riscv.Register.read(.tp); // hartid for cpuid()
 
     // set up the registers that trampoline.S's sret will use
     // to get to user space.
@@ -144,7 +145,7 @@ export fn kerneltrap() void {
     if (!csr.Sstatus.isSet(.SPP)) {
         @panic("kerneltrap: not from supervisor mode");
     }
-    if (csr.interruptsEnabled()) {
+    if (interrupts.isEnabled()) {
         @panic("kerneltrap: interrupts enabled");
     }
 

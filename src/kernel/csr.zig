@@ -287,21 +287,6 @@ pub const SstatusFlags = enum(usize) {
 
 pub const Sstatus = CsrWithFlags("sstatus", SstatusFlags);
 
-// enable device interrupts
-pub fn enableInterrupts() void {
-    Sstatus.set(.SIE);
-}
-
-// disable device interrupts
-pub fn disableInterrupts() void {
-    Sstatus.clear(.SIE);
-}
-
-// are device interrupts enabled?
-pub fn interruptsEnabled() bool {
-    return Sstatus.isSet(.SIE);
-}
-
 pub const SipFlags = enum(usize) {
     SSIP = 1 << 1, // supervisor software interrupt pending
     STIP = 1 << 5, // supervisor timer interrupt pending

@@ -7,7 +7,7 @@ comptime {
 
 const std = @import("std");
 const csr = @import("csr.zig");
-const registers = @import("common").riscv.registers;
+const Register = @import("common").riscv.Register;
 const main = @import("main.zig");
 const param = @import("common").param;
 const memlayout = @import("memlayout.zig");
@@ -62,7 +62,7 @@ pub export fn start() void {
 
     // keep each CPU's hartid in its tp register, for cpuid().
     const id = csr.Mhartid.read();
-    registers.write(.tp, id);
+    Register.write(.tp, id);
 
     asm volatile ("mret");
 }

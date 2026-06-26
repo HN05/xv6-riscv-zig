@@ -12,7 +12,8 @@ const std = @import("std");
 const Atomic = std.atomic.Value;
 const riscv = @import("common").riscv;
 const csr = @import("csr.zig");
-const cpu = @import("cpu.zig");
+const interrupts = @import("interrupts.zig");
+const Cpu = @import("cpu.zig").Cpu;
 
 pub const SpinLock = struct {
     isLocked: Atomic(bool) = .init(false),
@@ -21,7 +22,7 @@ pub const SpinLock = struct {
     cpu: ?*c.struct_cpu = null,
 
     pub fn acquire(self: *SpinLock) void {
-        cpu.Cpu.pushOff(); // disable interrupts to avoid deadlock.
+        interrupts.pushOff(); // disable interrupts to avoid deadlock.
         if (self.isHolding()) {
             @panic("acquire");
         }
@@ -39,7 +40,7 @@ pub const SpinLock = struct {
 
         self.cpu = null;
         self.isLocked.store(false, .release);
-        cpu.Cpu.popOff();
+        interrupts.popOff();
     }
 
     pub fn isHolding(self: *SpinLock) bool {
@@ -77,11 +78,11 @@ pub const SpinLock = struct {
 // it takes two pop_off()s to undo two push_off()s.  Also, if interrupts
 // are initially off, then push_off, pop_off leaves them off.
 export fn push_off() void {
-    cpu.Cpu.popOff();
+    interrupts.popOff();
 }
 
 export fn pop_off() void {
-    cpu.Cpu.popOff();
+    interrupts.popOff();
 }
 
 //  TODO: remove under

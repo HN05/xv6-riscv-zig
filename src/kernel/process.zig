@@ -5,7 +5,8 @@ const ad = @import("address.zig");
 const ml = @import("memlayout.zig");
 const alloc = @import("kalloc.zig");
 const mem = @import("memory.zig");
-const cpuFile = @import("cpu.zig");
+const Cpu = @import("cpu.zig").Cpu;
+const interrupts = @import("interrupts.zig");
 
 pub const c = @cImport({
     @cInclude("kernel/types.h");
@@ -21,15 +22,14 @@ pub const c = @cImport({
     @cInclude("kernel/fcntl.h");
 });
 
-pub var processTable: [param.NPROC]Process = undefined;
-
-// init process table
-comptime {
+pub var processTable: [param.NPROC]Process = blk: {
+    var table: [processTable.len]Process = undefined;
     var index: usize = 0;
-    while (index < processTable.len) : (index += 1) {
-        processTable[index] = .{ .kernelStackAddress = ml.KSTACK(index) };
+    while (index < table.len.len) : (index += 1) {
+        table[index] = .{ .kernelStackAddress = ml.KSTACK(index) };
     }
-}
+    break :blk table;
+};
 
 pub var initialProcess: *Process = undefined;
 pub var nextProcessId: u32 = 1;
@@ -166,10 +166,10 @@ pub const Process = struct {
     ownedRingbufsCount: usize = undefined, // Count of ringbufs owned by this process
 
     pub fn getCurrent() ?*Process {
-        cpuFile.Cpu.pushOff();
-        const cpu = cpuFile.Cpu.getCurrent();
+        interrupts.pushOff();
+        const cpu = Cpu.getCurrent();
         const proc = cpu.runningProcess;
-        cpuFile.Cpu.popOff();
+        interrupts.popOff();
         return proc;
     }
 };
