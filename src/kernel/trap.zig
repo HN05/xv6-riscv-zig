@@ -60,7 +60,7 @@ export fn usertrap() void {
 
             // an interrupt will change sepc, scause, and sstatus,
             // so enable only now that we're done with those registers.
-            csr.interrupts_on();
+            csr.enableInterrupts();
 
             c.syscall();
         },
@@ -98,7 +98,7 @@ export fn usertrapret() void {
     // we're about to switch the destination of traps from
     // kerneltrap() to usertrap(), so turn off interrupts until
     // we're back in user space, where usertrap() is correct.
-    csr.interrupts_off();
+    csr.disableInterrupts();
 
     // send syscalls, interrupts, and exceptions to uservec in trampoline.S
     const trampoline_uservec = memlayout.TRAMPOLINE + (uservecAddr - trampolineAddr);
@@ -144,7 +144,7 @@ export fn kerneltrap() void {
     if (!csr.Sstatus.isSet(.SPP)) {
         @panic("kerneltrap: not from supervisor mode");
     }
-    if (csr.interrupts_is_on()) {
+    if (csr.interruptsEnabled()) {
         @panic("kerneltrap: interrupts enabled");
     }
 

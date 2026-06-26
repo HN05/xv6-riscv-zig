@@ -1,5 +1,6 @@
 // Physical memory layout
 const param = @import("common").param;
+const ad = @import("address.zig");
 pub const KSTACK_PAGENUM = param.KSTACK_PAGENUM;
 
 
@@ -77,8 +78,8 @@ pub const TRAMPOLINE = riscv.max_virtual_address - riscv.page_size;
 
 // map kernel stacks beneath the trampoline,
 // each surrounded by invalid guard pages.
-pub inline fn KSTACK(p: usize) usize {
-    return TRAMPOLINE - (p + 1) * (KSTACK_PAGENUM + 1) * riscv.page_size;
+pub inline fn KSTACK(processId: usize) ad.UserAddress {
+    return ad.UserAddress{.value =TRAMPOLINE - (processId + 1) * (KSTACK_PAGENUM + 1) * riscv.page_size };
 }
 
 // User memory layout.

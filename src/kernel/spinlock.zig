@@ -12,6 +12,7 @@ const std = @import("std");
 const Atomic = std.atomic.Value;
 const riscv = @import("common").riscv;
 const csr = @import("csr.zig");
+const cpu = @import("cpu.zig");
 
 pub const SpinLock = struct {
     isLocked: Atomic(bool) = .init(false),
@@ -20,7 +21,7 @@ pub const SpinLock = struct {
     cpu: ?*c.struct_cpu = null,
 
     pub fn acquire(self: *SpinLock) void {
-        push_off(); // disable interrupts to avoid deadlock.
+        cpu.Cpu.pushOff(); // disable interrupts to avoid deadlock.
         if (self.isHolding()) {
             @panic("acquire");
         }
@@ -38,7 +39,7 @@ pub const SpinLock = struct {
 
         self.cpu = null;
         self.isLocked.store(false, .release);
-        pop_off();
+        cpu.Cpu.popOff();
     }
 
     pub fn isHolding(self: *SpinLock) bool {
@@ -76,30 +77,11 @@ pub const SpinLock = struct {
 // it takes two pop_off()s to undo two push_off()s.  Also, if interrupts
 // are initially off, then push_off, pop_off leaves them off.
 export fn push_off() void {
-    const interruptsOn = csr.interrupts_is_on();
-    csr.interrupts_off();
-
-    const cpu = c.mycpu();
-    if (cpu.*.noff == 0) {
-        cpu.*.intena = @intFromBool(interruptsOn);
-    }
-    cpu.*.noff += 1;
+    cpu.Cpu.popOff();
 }
 
 export fn pop_off() void {
-    if (csr.interrupts_is_on()) {
-        @panic("pop_off - interruptible");
-    }
-
-    const cpu = c.mycpu();
-    if (cpu.*.noff < 1) {
-        @panic("pop_off");
-    }
-
-    cpu.*.noff -= 1;
-    if (cpu.*.noff == 0 and cpu.*.intena != 0) {
-        csr.interrupts_on();
-    }
+    cpu.Cpu.popOff();
 }
 
 //  TODO: remove under
