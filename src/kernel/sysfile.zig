@@ -10,12 +10,15 @@ const sysargs = @import("sysargs.zig");
 const c = sysargs.c;
 const log = @import("debuglog.zig");
 const common = @import("common");
-const params = common.param;
+const param = common.param;
 const kalloc = @import("kalloc.zig");
 const address = @import("address.zig");
 const page_size = common.riscv.page_size;
 const mem = @import("memory.zig");
 const execFile = @import("exec.zig");
+const Inode = @import("inode.zig");
+const File = @import("file.zig");
+const Device = @import("device.zig");
 
 pub fn sys_dup() u64 {
     const file = sysargs.getFile(.a0) catch |err| {
@@ -236,35 +239,10 @@ pub fn unlink() UnlinkErrors!void {
     c.iupdate(inode);
 }
 
-pub const InodeKind = enum {
-    Directory,
-    Device,
-    File,
-    pub fn cShort(self: InodeKind) c_short {
-        switch (self) {
-            .File => return c.T_FILE,
-            .Device => return c.T_DEVICE,
-            .Directory => return c.T_DIR,
-        }
-    }
-};
-
-fn MakeDeviceID(comptime ndev: comptime_int) type {
-    const total_bits = @bitSizeOf(usize);
-    const major_bits = std.math.log2_int_ceil(usize, ndev);
-    const minor_bits = total_bits - major_bits;
-
-    return packed struct(usize) {
-        minor: std.meta.Int(.unsigned, minor_bits),
-        major: std.meta.Int(.unsigned, major_bits),
-    };
-}
-
-pub const DeviceID = MakeDeviceID(params.NDEV);
 
 const CreateErrors = error{ FailedGetParentDir, PathExistsWithWrongType, FailedAllocateInode, FailedCreateDot, FailedCreateDotDot, FailedLinkParentDir };
 
-fn create(path: []u8, kind: InodeKind, device: DeviceID) CreateErrors!*c.struct_inode {
+fn create(path: []u8, kind: Inode.Kind, device: Device.ID) CreateErrors!*c.struct_inode {
     var name: [c.DIRSIZ]u8 = undefined;
     const directory = c.nameiparent(path.ptr, &name) orelse return CreateErrors.FailedGetParentDir;
 
@@ -382,7 +360,7 @@ pub fn open() !usize {
     errdefer c.iput(inode); // only iput on error
     defer c.iunlock(inode);
 
-    if (inode.*.type == c.T_DEVICE and (inode.*.major < 0 or inode.*.major >= params.NDEV)) return OpenErrors.InvalidDeviceMajor;
+    if (inode.*.type == c.T_DEVICE and (inode.*.major < 0 or inode.*.major >= param.NDEV)) return OpenErrors.InvalidDeviceMajor;
 
     const file = c.filealloc() orelse return OpenErrors.FailedAllocFile;
     errdefer c.fileclose(file);
@@ -436,7 +414,7 @@ pub fn sys_mknod() u64 {
     const major = sysargs.getInt(.a1);
     const minor = sysargs.getInt(.a2);
 
-    if (major >= params.NDEV) {
+    if (major >= param.NDEV) {
         log.print("major out of range", .{});
         return sysargs.errorVal;
     }

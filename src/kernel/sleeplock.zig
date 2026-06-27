@@ -1,8 +1,6 @@
 // Sleeping locks
 const std = @import("std");
-const spinlocks = @import("spinlock.zig");
-const CSpinlock = spinlocks.CSpinlock;
-const SpinLock = spinlocks.SpinLock;
+const SpinLock = @import("spinlock.zig");
 
 const c = @cImport({
     @cInclude("kernel/types.h");

@@ -1,14 +1,7 @@
-const SpinLock = @import("spinlock.zig").SpinLock;
+const SpinLock = @import("spinlock.zig");
+const scheduler = @import("scheduler.zig");
+const Process = @import("process.zig");
 
-const c = @cImport({
-    @cInclude("kernel/types.h");
-    @cInclude("kernel/param.h");
-    @cInclude("kernel/memlayout.h");
-    @cInclude("kernel/riscv.h");
-    @cInclude("kernel/spinlock.h");
-    @cInclude("kernel/proc.h");
-    @cInclude("kernel/defs.h");
-});
 
 pub const ticks = &ticksBacking;
 
@@ -28,7 +21,7 @@ const Ticks = struct {
 
             self.ticks += 1;
         }
-        c.wakeup(self);
+        scheduler.wakeup(self);
     }
 
     pub fn readSafe(self: *Ticks) usize {
@@ -44,7 +37,7 @@ const Ticks = struct {
 
         const ticks0 = self.ticks;
         while (self.ticks - ticks0 < ticksToSleep) {
-            if (c.killed(c.myproc()) != 0) {
+            if (Process.isKilled(.getCurrentForce())) {
                 return SleepError.Killed;
             }
             self.lock.sleep(self);

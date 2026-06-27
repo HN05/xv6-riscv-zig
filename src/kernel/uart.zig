@@ -1,23 +1,11 @@
 // Much of this code comes from https://github.com/binarycraft007/xv6-riscv-zig
 
 const memlayout = @import("memlayout.zig");
-const SpinLock = @import("spinlock.zig").SpinLock;
+const SpinLock = @import("spinlock.zig");
 const log_root = @import("klog.zig");
 const console = @import("console.zig");
 const interrupts = @import("interrupts.zig");
-
-const c = @cImport({
-    @cInclude("kernel/types.h");
-    @cInclude("kernel/param.h");
-    @cInclude("kernel/spinlock.h");
-    @cInclude("kernel/sleeplock.h");
-    @cInclude("kernel/fs.h");
-    @cInclude("kernel/file.h");
-    @cInclude("kernel/memlayout.h");
-    @cInclude("kernel/riscv.h");
-    @cInclude("kernel/defs.h");
-    @cInclude("kernel/proc.h");
-});
+const scheduler = @import("scheduler.zig");
 
 /// the UART control registers.
 /// some have different meanings for
@@ -131,7 +119,7 @@ pub fn start() void {
         transmit_r += 1;
 
         // maybe uartputc() is waiting for space in the buffer.
-        c.wakeup(&transmit_r);
+        scheduler.wakeup(&transmit_r);
 
         writeReg(transmit_holding_register, character);
     }

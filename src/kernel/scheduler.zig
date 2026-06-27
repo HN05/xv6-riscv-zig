@@ -27,12 +27,12 @@ pub fn schedulerLoop() void {
             process.lock.acquire();
             defer process.lock.release();
 
-            if (process.state == .runnable) {
+            if (process.state_unsafe == .runnable) {
 
                 // Switch to chosen process.  It is the process's job
                 // to release its lock and then reacquire it
                 // before jumping back to us.
-                process.state = .running;
+                process.state_unsafe = .running;
                 cpu.runningProcess = process;
                 switchContext(&cpu.context, &process.context);
 
@@ -54,7 +54,7 @@ pub fn schedulerLoop() void {
 pub fn switchToScheduler() void {
     const process = Process.getCurrent() orelse @panic("switchToScheduler: no process to switch from");
     if (!process.lock.isHolding()) @panic("switchToScheduler: not holding process lock");
-    if (process.state == .running) @panic("switchToScheduler: process is running");
+    if (process.state_unsafe == .running) @panic("switchToScheduler: process is running");
 
     const cpu = Cpu.getCurrent();
     if (cpu.pushDepth != 1) @panic("switchToScheduler: locks");
@@ -71,7 +71,7 @@ pub fn yield() void {
     process.lock.acquire();
     defer process.lock.release();
 
-    process.state = .runnable;
+    process.state_unsafe = .runnable;
     switchToScheduler();
 }
 
@@ -94,13 +94,13 @@ pub fn sleep(channel: *anyopaque, spinlock: *lk.SpinLock) void {
     defer process.lock.release();
 
     // Go to sleep.
-    process.sleepingOnChannel = channel;
-    process.state = .sleeping;
+    process.sleeping_channel_unsafe = channel;
+    process.state_unsafe = .sleeping;
 
     switchToScheduler();
 
     // Tidy up.
-    process.sleepingOnChannel = null;
+    process.sleeping_channel_unsafe = null;
 }
 
 // Wake up all processes sleeping on chan.
@@ -112,8 +112,8 @@ pub fn wakeup(channel: *anyopaque) void {
             process.lock.acquire();
             defer process.lock.release();
 
-            if (process.state == .sleeping and process.sleepingOnChannel == channel) {
-                process.state == .runnable;
+            if (process.state_unsafe == .sleeping and process.sleeping_channel_unsafe == channel) {
+                process.state_unsafe == .runnable;
             }
         }
     }

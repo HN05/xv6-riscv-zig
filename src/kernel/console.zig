@@ -10,21 +10,13 @@
 //
 
 const std = @import("std");
-const SpinLock = @import("spinlock.zig").SpinLock;
+const SpinLock = @import("spinlock.zig");
 const uart = @import("uart.zig");
-
-const c = @cImport({
-    @cInclude("kernel/types.h");
-    @cInclude("kernel/param.h");
-    @cInclude("kernel/spinlock.h");
-    @cInclude("kernel/sleeplock.h");
-    @cInclude("kernel/fs.h");
-    @cInclude("kernel/file.h");
-    @cInclude("kernel/memlayout.h");
-    @cInclude("kernel/riscv.h");
-    @cInclude("kernel/defs.h");
-    @cInclude("kernel/proc.h");
-});
+const mem = @import("memory.zig");
+const Device = @import("device.zig");
+const ad = @import("address.zig");
+const Process = @import("process.zig");
+const scheduler = @import("scheduler.zig");
 
 fn control(char: u8) u8 {
     return char - '@';
@@ -57,44 +49,42 @@ var inputBuffer: InputBuffer = .{};
 
 pub fn init() void {
     uart.init();
-    
-    const consoleDevice = &c.devsw[c.CONSOLE];
-    consoleDevice.read = &read;
-    consoleDevice.write = &write;
+
+    const console_device = &Device.deviceTable[Device.console_major];
+    console_device.read = &read;
+    console_device.write = &write;
 }
 
 //
 // user write()s to the console go here.
 //
-fn write(user_src: c_int, src: c.uint64, n: c_int) callconv(.c) c_int {
-    var i: c.uint64 = 0;
+fn write(comptime address_kind: ad.AddressKind, source: usize, length: usize) Device.WriteErrors!usize {
+    var chars_written: usize = 0;
 
-    while (i < n) : (i += 1) {
+    while (chars_written < length) : (chars_written += 1) {
         var char: u8 = undefined;
-        const res = c.either_copyin(&char, user_src, src + i, 1);
 
-        if (res == -1) {
-            break;
-        }
+        // breaks if fails
+        mem.eitherCopyIn(address_kind, source + chars_written, std.mem.asBytes(&char)) catch break;
 
         uart.putCharacter(char);
     }
 
-    return @intCast(i);
+    return chars_written;
 }
 
 //
 // user read()s from the console go here.
 // copy (up to) a whole input line to dst.
-// user_dist indicates whether dst is a user
+// address_kind indicates whether dst is a user
 // or kernel address.
 //
-fn read(userDestination: c_int, start: c.uint64, n: c_int) callconv(.c) c_int {
-    const target = n;
+fn read(comptime address_kind: ad.AddressKind, destination: usize, length: usize) Device.ReadErrors!usize {
+    const target = length;
     var character: u8 = undefined;
     var characterBuffer: u8 = undefined;
-    var destination = start;
-    var charsLeft = n;
+    var destination_address = ad.Address(address_kind){ .value = destination };
+    var charsLeft = length;
 
     inputBuffer.lock.acquire();
     defer inputBuffer.lock.release();
@@ -103,8 +93,9 @@ fn read(userDestination: c_int, start: c.uint64, n: c_int) callconv(.c) c_int {
         // wait until interrupt handler has put some
         // input into cons.buffer.
         while (inputBuffer.readIndex == inputBuffer.writeIndex) {
-            if (c.killed(c.myproc()) != 0) {
-                return -1;
+            const process = Process.getCurrent() orelse return Device.ReadErrors.NoRunningProcess;
+            if (process.isKilled()) {
+                return Device.ReadErrors.ProcessKilled;
             }
             inputBuffer.lock.sleep(&inputBuffer.readIndex);
         }
@@ -122,12 +113,10 @@ fn read(userDestination: c_int, start: c.uint64, n: c_int) callconv(.c) c_int {
         }
         // copy the input byte to the user-space buffer.
         characterBuffer = character;
-        const result = c.either_copyout(userDestination, destination, &characterBuffer, 1);
-        if (result == -1) {
-            break;
-        }
 
-        destination += 1;
+        mem.eitherCopyOut(address_kind, destination_address.toInt(), std.mem.asBytes(&characterBuffer)) catch break;
+
+        destination_address = destination_address.add(1);
         charsLeft -= 1;
 
         if (character == '\n') {
@@ -154,7 +143,7 @@ pub fn interrupt(character: u8) void {
 
     switch (character) {
         control('P') => { // print process list
-            c.procdump();
+            Process.dump();
         },
         control('U') => { // kill line
             while (inputBuffer.editIndex != inputBuffer.writeIndex) {
@@ -192,7 +181,7 @@ pub fn interrupt(character: u8) void {
                 // wake up consoleread() if a whole line (or end-of-file)
                 // has arrived.
                 inputBuffer.writeIndex = inputBuffer.editIndex;
-                c.wakeup(&inputBuffer.readIndex);
+                scheduler.wakeup(&inputBuffer.readIndex);
             }
         },
     }

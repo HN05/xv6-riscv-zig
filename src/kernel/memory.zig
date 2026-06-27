@@ -393,3 +393,27 @@ pub fn copyOutTerminated(pgTable: ad.PageTablePtr, destVirtualAddress: ad.UserAd
     const terminator: [1]u8 = .{0};
     try copyOut(pgTable, destVirtualAddress.add(source.len), &terminator);
 }
+
+// Copy to either a user address, or kernel address,
+pub fn eitherCopyOut(comptime address_kind: ad.AddressKind, destination: usize, source: []const u8) !void {
+    const process = try Process.getCurrentThrows();
+    const destination_address = ad.Address(address_kind){.value = destination};
+
+    if (address_kind == .user) {
+        try copyOut(process.pageTable, destination_address, source);
+    } else {
+        @memmove(destination_address.asPtr([*]u8), source);
+    }
+}
+
+// Copy from either a user address, or kernel address,
+pub fn eitherCopyIn(comptime address_kind: ad.AddressKind, source: usize, destination: []const u8) !void {
+    const process = try Process.getCurrentThrows();
+    const source_address = ad.Address(address_kind){.value = source};
+
+    if (address_kind == .user) {
+        try copyIn(process.pageTable, destination, source_address);
+    } else {
+        @memmove(destination, source_address.asPtr([*]u8));
+    }
+}

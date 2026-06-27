@@ -1,23 +1,8 @@
 const common = @import("common");
 const param = common.param;
 const Register = common.riscv.Register;
-const csr = @import("csr.zig");
 const Process = @import("process.zig");
 const Context = common.riscv.Context;
-
-const c = @cImport({
-    @cInclude("kernel/types.h");
-    @cInclude("kernel/riscv.h");
-    @cInclude("kernel/defs.h");
-    @cInclude("kernel/param.h");
-    @cInclude("kernel/stat.h");
-    @cInclude("kernel/spinlock.h");
-    @cInclude("kernel/proc.h");
-    @cInclude("kernel/fs.h");
-    @cInclude("kernel/sleeplock.h");
-    @cInclude("kernel/file.h");
-    @cInclude("kernel/fcntl.h");
-});
 
 const Cpu = @This();
 pub var table: [param.NCPU]Cpu = undefined;

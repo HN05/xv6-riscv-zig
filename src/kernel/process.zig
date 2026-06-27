@@ -12,6 +12,8 @@ const std = @import("std");
 const ringbuf = @import("ringbuf.zig");
 const print = @import("klog.zig").print;
 const scheduler = @import("scheduler.zig");
+const File = @import("file.zig");
+const Inode = @import("inode.zig");
 
 pub var processTable: [param.NPROC]Process = blk: {
     var table: [param.NPROC]Process = undefined;
@@ -115,11 +117,11 @@ const Process = @This();
 lock: lk.SpinLock = .{ .name = "proc" },
 
 // p->lock must be held when using these:
-state: ProcessState = .unused,
-sleepingOnChannel: ?*anyopaque = null, // If non-null, sleeping on channel
-isKilled: bool = false,
-exitStatus: u32 = 0, // Exit status to be returned to parent's wait
-pid: u32 = 0, // process id
+state_unsafe: ProcessState = .unused,
+sleeping_channel_unsafe: ?*anyopaque = null, // If non-null, sleeping on channel
+is_killed_unsafe: bool = false,
+exit_status_unsafe: u32 = 0, // Exit status to be returned to parent's wait
+pid_unsafe: u32 = 0, // process id
 
 // wait_lock must be held when using this:
 parentProcess: ?*Process = null, // null for root process
@@ -131,8 +133,8 @@ pageTable: ad.PageTablePtr = undefined, // User page table
 topFreeVirtualPage: ad.UserAddress = ml.trapframe_virtual_address.sub(2 * ad.page_size), // The highest free user virtual mem page. Starts at TRAPFRAME - 2*PGSIZE and goes down as pages are used.
 trapFrame: *TrapFrame = undefined, // data page for trampoline.S
 context: Context = undefined, // switchContext() here to run process
-openFiles: [param.NOFILE]?*c.struct_file = [_]?*c.struct_file{null} ** param.NOFILE, // Open files
-currentWorkingDirectory: *c.struct_inode = undefined,
+openFiles: [param.NOFILE]?*File = [_]?*File{null} ** param.NOFILE, // Open files
+currentWorkingDirectory: *Inode = undefined,
 nameBuffer: [16]u8 = undefined, // for debugging
 nameLength: u4 = 0,
 ownedRingbufsCount: usize = 0, // Count of ringbufs owned by this process
@@ -145,6 +147,10 @@ pub fn nameSlice(process: *Process) []const u8 {
 
 pub fn getCurrentForce() *Process {
     return getCurrent() orelse @panic("getCurrentForce: no process running");
+}
+
+pub fn getCurrentThrows() !*Process {
+    return getCurrent() orelse return error.NoProcessRunning;
 }
 
 pub fn getCurrent() ?*Process {
@@ -163,8 +169,8 @@ fn allocFoundProcess(process: *Process) !void {
     errdefer free(process);
     errdefer process.lock.release();
 
-    process.pid = allocProcessId();
-    process.state = .used;
+    process.pid_unsafe = allocProcessId();
+    process.state_unsafe = .used;
 
     // Allocate a trapframe page.
     const trap_page = alloc.allocPage() orelse return error.FailedMemAllocate;
@@ -189,7 +195,7 @@ fn allocFoundProcess(process: *Process) !void {
 fn allocProcess() ?*Process {
     for (&processTable) |*process| {
         process.lock.acquire();
-        if (process.state == .unused) {
+        if (process.state_unsafe == .unused) {
             allocFoundProcess(process) catch return null;
             return process;
         }
@@ -217,13 +223,13 @@ fn free(process: *Process) void {
     process.topFreeVirtualPage = ml.trapframe_virtual_address.sub(2 * ad.page_size);
     process.size = 0;
     process.ownedRingbufsCount = 0;
-    process.pid = 0;
+    process.pid_unsafe = 0;
     process.parentProcess = null;
     process.nameLength = 0;
-    process.sleepingOnChannel = null;
-    process.isKilled = false;
-    process.exitStatus = 0;
-    process.state = .unused;
+    process.sleeping_channel_unsafe = null;
+    process.is_killed_unsafe = false;
+    process.exit_status_unsafe = 0;
+    process.state_unsafe = .unused;
 }
 
 // Create a user page table for a given process, with no user memory,
@@ -291,7 +297,7 @@ pub fn initFirstUser() void {
     initialProcess.nameLength = name.len;
 
     initialProcess.currentWorkingDirectory = c.namei(@constCast("/"));
-    initialProcess.state = .runnable;
+    initialProcess.state_unsafe = .runnable;
 }
 
 // A fork child's very first scheduling by scheduler()
@@ -365,7 +371,7 @@ pub fn fork() !u32 {
         child_process.nameLength = parent_process.nameLength;
         child_process.nameBuffer = @memcpy(&child_process.nameBuffer, parent_process.nameSlice());
 
-        child_pid = child_process.pid;
+        child_pid = child_process.pid_unsafe;
     }
 
     // set parent relationship
@@ -381,7 +387,7 @@ pub fn fork() !u32 {
         child_process.lock.acquire();
         defer child_process.lock.release();
 
-        child_process.state = .runnable;
+        child_process.state_unsafe = .runnable;
     }
 
     return child_pid;
@@ -433,8 +439,8 @@ pub fn exit(status: u32) void {
         scheduler.wakeup(current_process.parentProcess.?);
 
         current_process.lock.acquire(); // keep holding for scheduler
-        current_process.exitStatus = status;
-        current_process.state = .zombie;
+        current_process.exit_status_unsafe = status;
+        current_process.state_unsafe = .zombie;
     }
 
     // Jump into the scheduler, never to return.
@@ -461,19 +467,19 @@ pub fn wait(exit_status_destination: ?ad.UserAddress) !u32 {
             defer process.lock.release();
 
             have_kids = true;
-            if (process.state == .zombie) {
+            if (process.state_unsafe == .zombie) {
                 // Found one.
                 if (exit_status_destination) |destination| {
-                    try mem.copyOut(current_process.pageTable, destination, std.mem.asBytes(&process.exitStatus));
+                    try mem.copyOut(current_process.pageTable, destination, std.mem.asBytes(&process.exit_status_unsafe));
                 }
-                const pid = process.pid;
+                const pid = process.pid_unsafe;
                 free(process);
                 return pid;
             }
         }
 
         // No point waiting if we don't have any children.
-        if (!have_kids or isKilledO(current_process)) return;
+        if (!have_kids or isKilled(current_process)) return;
 
         scheduler.sleep(current_process, waitLock);
     }
@@ -488,11 +494,11 @@ pub fn kill(target_pid: u32) !void {
         process.lock.acquire();
         defer process.lock.release();
 
-        if (process.pid == target_pid) {
-            process.isKilled = true;
-            if (process.state == .sleeping) {
+        if (process.pid_unsafe == target_pid) {
+            process.is_killed_unsafe = true;
+            if (process.state_unsafe == .sleeping) {
                 // Wake process from sleep().
-                process.state = .runnable;
+                process.state_unsafe = .runnable;
             }
             return;
         }
@@ -504,54 +510,23 @@ pub fn setKilled(process: *Process) void {
     process.lock.acquire();
     defer process.lock.release();
 
-    process.isKilled = true;
+    process.is_killed_unsafe = true;
 }
 
-//  TODO:
-pub fn isKilledO(process: *Process) bool {
+pub fn isKilled(process: *Process) bool {
     process.lock.acquire();
     defer process.lock.release();
 
-    return process.isKilled;
+    return process.is_killed_unsafe;
 }
 
-// Copy to either a user address, or kernel address,
-// depending on usr_dst.
-//  TODO: remove
-export fn either_copyout(isUserDestination: c_int, destination: c.uint64, source: *anyopaque, length: c.uint64) c_int {
-    const process = getCurrent() orelse return -1;
-    const destPointer: [*]u8 = @ptrFromInt(destination);
-    const sourcePointer: [*]const u8 = @ptrCast(source);
-    if (isUserDestination != 0) {
-        mem.copyOut(process.pageTable, .fromInt(destination), sourcePointer[0..length]) catch return -1;
-    } else {
-        @memmove(destPointer, sourcePointer[0..length]);
-    }
-    return 0;
-}
-
-// Copy from either a user address, or kernel address,
-// depending on usr_src.
-// Returns 0 on success, -1 on error.
-export fn either_copyin(destination: *anyopaque, isUserSource: c_int, source: c.uint64, length: c.uint64) c_int {
-    const process = getCurrent() orelse return -1;
-    const destPointer: [*]u8 = @ptrCast(destination);
-    const sourcePointer: [*]const u8 = @ptrFromInt(source);
-
-    if (isUserSource != 0) {
-        mem.copyIn(process.pageTable, destPointer[0..length], .fromInt(source)) catch return -1;
-    } else {
-        @memmove(destPointer[0..length], sourcePointer);
-    }
-    return 0;
-}
 // Print a process listing to console.  For debugging.
 // Runs when user types ^P on console.
 // No lock to avoid wedging a stuck machine further.
-pub fn processDump() void {
+pub fn dump() void {
     print("\n", .{});
     for (processTable) |process| {
-        if (process.state == .unused) continue;
-        print("{d} {s} {s} \n", .{ process.pid, @tagName(process.state), process.nameSlice() });
+        if (process.state_unsafe == .unused) continue;
+        print("{d} {s} {s} \n", .{ process.pid_unsafe, @tagName(process.state_unsafe), process.nameSlice() });
     }
 }

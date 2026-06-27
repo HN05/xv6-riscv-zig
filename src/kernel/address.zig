@@ -76,6 +76,7 @@ pub const AddressKind = enum {
     kernel,
 };
 
+// is constant, a new value is always returned, never modified in place
 pub fn Address(comptime addressKind: AddressKind) type {
     return struct {
         value: usize,

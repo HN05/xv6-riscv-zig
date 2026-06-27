@@ -1,5 +1,5 @@
 const std = @import("std");
-const SpinLock = @import("spinlock.zig").SpinLock;
+const SpinLock = @import("spinlock.zig");
 const memlayout = @import("../kernel/memlayout.zig");
 const ad = @import("address.zig");
 const assert = std.debug.assert;

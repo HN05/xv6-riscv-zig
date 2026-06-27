@@ -40,7 +40,7 @@ export fn syscall() void {
         .uptime => procsyscalls.sys_uptime(),
         .write => filesyscalls.sys_write(),
         else => ret: {
-            log.print("{d} {s}: unkown sys call {d}\n", .{ process.pid, process.nameSlice(), num });
+            log.print("{d} {s}: unkown sys call {d}\n", .{ process.pid_unsafe, process.nameSlice(), num });
             break :ret ~@as(usize, 0);
         },
     };
