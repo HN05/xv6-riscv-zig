@@ -8,6 +8,7 @@ const plic = @import("plic.zig");
 const ticks = @import("ticks.zig").ticks;
 const ad = @import("address.zig");
 const interrupts = @import("interrupts.zig");
+const Cpu = @import("cpu.zig");
 
 const c = @cImport({
     @cInclude("kernel/types.h");
@@ -102,14 +103,14 @@ export fn usertrapret() void {
     interrupts.disable();
 
     // send syscalls, interrupts, and exceptions to uservec in trampoline.S
-    const trampoline_uservec = memlayout.TRAMPOLINE + (uservecAddr - trampolineAddr);
-    csr.Stvec.write(trampoline_uservec);
+    const trampoline_uservec = memlayout.trampoline_virtual_address.add(uservecAddr - trampolineAddr);
+    csr.Stvec.write(trampoline_uservec.toInt());
 
     // set up trapframe values that uservec will need when
     // the process next traps into the kernel.
     const trapframe: *c.struct_trapframe = process.trapframe;
     trapframe.kernel_satp = csr.Satp.readInt(); // kernel page table
-    trapframe.kernel_sp = process.kstack + memlayout.KSTACK_PAGENUM * riscv.page_size; // process's kernel stack
+    trapframe.kernel_sp = process.kstack + memlayout.kernel_stack_page_count * riscv.page_size; // process's kernel stack
     trapframe.kernel_trap = @intFromPtr(&usertrap);
     trapframe.kernel_hartid = riscv.Register.read(.tp); // hartid for cpuid()
 
@@ -126,12 +127,12 @@ export fn usertrapret() void {
     csr.Sepc.write(trapframe.epc);
 
     // tell trampoline.S the user page table to switch to.
-    const satp = csr.Satp.make(@alignCast(@ptrCast(process.pagetable)));
+    const satp = csr.Satp.make(@ptrCast(@alignCast(process.pagetable)));
 
     // jump to userret in trampoline.S at the top of memory, which
     // switches to the user page table, restores user registers,
     // and switches to user mode with sret.
-    const trampoline_userret: *const fn (usize) callconv(.c) void = @ptrFromInt(memlayout.TRAMPOLINE + (userretAddr - trampolineAddr));
+    const trampoline_userret: *const fn (usize) callconv(.c) void = @ptrFromInt(memlayout.trampoline_virtual_int + (userretAddr - trampolineAddr));
     trampoline_userret(satp);
 }
 
@@ -168,7 +169,6 @@ export fn kerneltrap() void {
     csr.Sstatus.write(sstatus);
 }
 
-
 // check if it's an external interrupt or software interrupt,
 // and handle it.
 // returns 2 if timer interrupt,
@@ -181,24 +181,22 @@ fn handleDeviceInterrupt(scause: csr.Scause) void {
 
             // irq indicates which device interrupted.
             const irq = plic.claim();
-            if (irq == memlayout.UART0_IRQ) {
-                uart.interrupt();
-            } else if (irq == memlayout.VIRTIO0_IRQ) {
-                c.virtio_disk_intr();
-            } else if (irq != 0) {
-                print("unexpected interrupt irq={d}\n", .{irq});
+            switch (irq) {
+                .uart => uart.interrupt(),
+                .virtio => c.virtio_disk_intr(),
+                else => print("unexpected interrupt irq={d}\n", .{irq}),
             }
             // the PLIC allows each device to raise at most one
             // interrupt at a time; tell the PLIC the device is
             // now allowed to interrupt again.
-            if (irq != 0) {
+            if (irq != .null) {
                 plic.complete(irq);
             }
         },
         .supervisorSoftwareInterrupt => {
             // software interrupt from a machine-mode timer interrupt,
             // forwarded by timervec in kernelvec.S.
-            if (c.cpuid() == 0) {
+            if (Cpu.getCurrentId() == 0) {
                 ticks.incrementSafe();
             }
             // acknowledge the software interrupt by clearing

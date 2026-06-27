@@ -78,14 +78,14 @@ pub fn timerinit() void {
 
     // ask the CLINT for a timer interrupt.
     const interval = 1000000; // cycles; about 1/10th second in qemu.
-    memlayout.CLINT_MTIMECMP(id).* = memlayout.CLINT_MTIME.* + interval;
+    memlayout.clint_mtimecmp(id).* = memlayout.clint_mtime.* + interval;
 
     // prepare information in scratch[] for timervec.
     // scratch[0..2] : space for timervec to save registers.
     // scratch[3] : address of CLINT MTIMECMP register.
     // scratch[4] : desired interval (in cycles) between timer interrupts.
     var scratch = timer_scratch[id];
-    scratch[3] = @intFromPtr(memlayout.CLINT_MTIMECMP(id));
+    scratch[3] = @intFromPtr(memlayout.clint_mtimecmp(id));
     scratch[4] = interval;
     csr.Mscratch.write(@intFromPtr(&scratch));
 

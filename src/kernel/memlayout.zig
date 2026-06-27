@@ -1,8 +1,8 @@
 // Physical memory layout
 const param = @import("common").param;
 const ad = @import("address.zig");
-pub const KSTACK_PAGENUM = param.KSTACK_PAGENUM;
-
+const riscv = @import("common").riscv;
+pub const kernel_stack_page_count = param.kernel_stack_page_count;
 
 // qemu -machine virt is set up like this,
 // based on qemu's hw/riscv/virt.c:
@@ -21,65 +21,73 @@ pub const KSTACK_PAGENUM = param.KSTACK_PAGENUM;
 // end -- start of kernel page allocation area
 // PHYSTOP -- end RAM used by the kernel
 
-const riscv = @import("common").riscv;
 // qemu puts UART registers here in physical memory.
-pub const UART0 = 0x1000_0000;
-pub const UART0_IRQ = 10;
+pub const uart0_base_address = ad.KernelAddress.fromInt(0x1000_0000);
+pub const uart0_irq = 10;
 
 // virtio mmio interface
-pub const VIRTIO0 = 0x1000_1000;
-pub const VIRTIO0_IRQ = 1;
+pub const virtio0_base_address = ad.KernelAddress.fromInt(0x1000_1000);
+pub const virtio0_irq = 1;
 
 // core local interruptor (CLINT), which contains the timer.
-pub const CLINT = 0x2000000;
-pub inline fn CLINT_MTIMECMP(hartid: usize) *usize {
-    return @ptrFromInt(CLINT + 0x4000 + 8 * hartid);
+pub const clint_base_address = ad.KernelAddress.fromInt(0x2000000);
+pub inline fn clint_mtimecmp(hartid: usize) *usize {
+    return clint_base_address.add(0x4000 + 8 * hartid).asPtr(*usize);
 }
 // cycles since boot.
-pub const CLINT_MTIME: *usize = @ptrFromInt(CLINT + 0xBFF8);
+pub const clint_mtime: *usize = clint_base_address.add(0xBFF8).asPtr(*usize);
 
 // qemu puts platform-level interrupt controller (PLIC) here.
-pub const PLIC = 0x0c00_0000;
-pub const PLIC_SIZE = 0x40_0000;
+pub const plic = struct {
+    pub const base_address = ad.KernelAddress.fromInt(0x0c00_0000);
+    pub const size = 0x40_0000;
 
-pub inline fn PLIC_PRIORITY(irq: usize) *volatile u32 {
-    return @ptrFromInt(PLIC + irq * @sizeOf(u32));
-}
+    pub inline fn priorityRegister(irq: usize) *volatile u32 {
+        return base_address.add(irq * @sizeOf(u32)).asPtr(*volatile u32);
+    }
 
-pub const PLIC_PENDING = PLIC + 0x1000;
-pub inline fn PLIC_MENABLE(hart: usize) *volatile u32 {
-    return @ptrFromInt(PLIC + 0x2000 + hart * 0x100);
-}
-pub inline fn PLIC_SENABLE(hart: usize) *volatile u32 {
-    return @ptrFromInt(PLIC + 0x2080 + hart * 0x100);
-}
-pub inline fn PLIC_MPRIORITY(hart: usize) *volatile u32 {
-    return @ptrFromInt(PLIC + 0x200000 + hart * 0x2000);
-}
-pub inline fn PLIC_SPRIORITY(hart: usize) *volatile u32 {
-    return @ptrFromInt(PLIC + 0x201000 + hart * 0x2000);
-}
-pub inline fn PLIC_MCLAIM(hart: usize) *volatile u32 {
-    return @ptrFromInt(PLIC + 0x200004 + hart * 0x2000);
-}
-pub inline fn PLIC_SCLAIM(hart: usize) *volatile u32 {
-    return @ptrFromInt(PLIC + 0x201004 + hart * 0x2000);
-}
+    pub const pending = base_address.add(0x1000);
+
+    pub inline fn machineEnableRegister(hartId: usize) *volatile u32 {
+        return base_address.add(0x2000 + hartId * 0x100).asPtr(*volatile u32);
+    }
+
+    pub inline fn supervisorEnableRegister(hartId: usize) *volatile u32 {
+        return base_address.add(0x2080 + hartId * 0x100).asPtr(*volatile u32);
+    }
+
+    pub inline fn machinePriorityThresholdRegister(hartId: usize) *volatile u32 {
+        return base_address.add(0x200000 + hartId * 0x2000).asPtr(*volatile u32);
+    }
+
+    pub inline fn supervisorPriorityThresholdRegister(hartId: usize) *volatile u32 {
+        return base_address.add(0x201000 + hartId * 0x2000).asPtr(*volatile u32);
+    }
+
+    pub inline fn machineClaimCompleteRegister(hartId: usize) *volatile u32 {
+        return base_address.add(0x200004 + hartId * 0x2000).asPtr(*volatile u32);
+    }
+
+    pub inline fn supervisorClaimCompleteRegister(hartId: usize) *volatile u32 {
+        return base_address.add(0x201004 + hartId * 0x2000).asPtr(*volatile u32);
+    }
+};
 
 // the kernel expects there to be RAM
 // for use by the kernel and user pages
 // from physical address 0x80000000 to PHYSTOP.
-pub const KERNBASE = 0x80000000;
-pub const PHYSTOP = KERNBASE + 128 * 1024 * 1024;
+pub const kernel_base_address = ad.KernelAddress.fromInt(0x80000000);
+pub const physical_stop_address = kernel_base_address.add(128 * 1024 * 1024);
 
 // map the trampoline page to the highest address,
 // in both user and kernel space.
-pub const TRAMPOLINE = riscv.max_virtual_address - riscv.page_size;
+pub const trampoline_virtual_int = riscv.max_virtual_address - riscv.page_size;
+pub const trampoline_virtual_address = ad.UserAddress.fromInt(trampoline_virtual_int);
 
 // map kernel stacks beneath the trampoline,
 // each surrounded by invalid guard pages.
 pub inline fn KSTACK(processId: usize) ad.UserAddress {
-    return ad.UserAddress{.value =TRAMPOLINE - (processId + 1) * (KSTACK_PAGENUM + 1) * riscv.page_size };
+    return .fromInt(trampoline_virtual_int - (processId + 1) * (kernel_stack_page_count + 1) * riscv.page_size);
 }
 
 // User memory layout.
@@ -91,4 +99,11 @@ pub inline fn KSTACK(processId: usize) ad.UserAddress {
 //   ...
 //   TRAPFRAME (p->trapframe, used by the trampoline)
 //   TRAMPOLINE (the same page as in the kernel)
-pub const TRAPFRAME = TRAMPOLINE - riscv.page_size;
+pub const trapframe_virtual_address = trampoline_virtual_address.sub(riscv.page_size);
+
+
+// first address after kernel.
+extern const end: anyopaque;
+pub fn kernelEndAddress() ad.KernelAddress {
+    return .fromPtr(&end);
+}

@@ -105,7 +105,7 @@ pub fn Address(comptime addressKind: AddressKind) type {
             return @ptrFromInt(self.toInt());
         }
 
-        pub fn fromPtr(ptr: *anyopaque) Self {
+        pub fn fromPtr(ptr: *const anyopaque) Self {
             return Self.fromInt(@intFromPtr(ptr));
         }
 
@@ -117,7 +117,7 @@ pub fn Address(comptime addressKind: AddressKind) type {
             const val = self.toInt();
             switch (kind) {
                 .user => return val >= riscv.max_virtual_address,
-                .kernel => return val < @intFromPtr(kalloc.end) or val >= memlayout.PHYSTOP,
+                .kernel => return self.isBefore(memlayout.kernelEndAddress()) or !self.isBefore(memlayout.physical_stop_address),
             }
         }
 
@@ -128,6 +128,23 @@ pub fn Address(comptime addressKind: AddressKind) type {
         pub fn sub(self: Self, offset: usize) Self {
             return Self.fromInt(self.toInt() - offset);
         }
+
+        pub fn offsetFrom(self: Self, address: Self) usize {
+            return self.value - address.value;
+        }
+
+        pub fn isAfter(self: Self, address: Self) bool {
+            return self.value > address.value;
+        }
+
+        pub fn isBefore(self: Self, address: Self) bool {
+            return self.value < address.value;
+        }
+
+        pub fn isEqual(self: Self, address: Self) bool {
+            return self.value == address.value;
+        }
+
 
         pub fn isPageAligned(self: Self) bool {
             return self.pageOffset() == 0;

@@ -1,5 +1,6 @@
 const common = @import("common");
 const param = common.param;
+const Context = common.riscv.Context;
 const lk = @import("spinlock.zig");
 const ad = @import("address.zig");
 const ml = @import("memlayout.zig");
@@ -7,6 +8,8 @@ const alloc = @import("kalloc.zig");
 const mem = @import("memory.zig");
 const Cpu = @import("cpu.zig");
 const interrupts = @import("interrupts.zig");
+const std = @import("std");
+const ringbuf = @import("ringbuf.zig");
 
 pub const c = @cImport({
     @cInclude("kernel/types.h");
@@ -23,7 +26,7 @@ pub const c = @cImport({
 });
 
 pub var processTable: [param.NPROC]Process = blk: {
-    var table: [processTable.len]Process = undefined;
+    var table: [param.NPROC]Process = undefined;
     for (0..table.len) |index| {
         table[index] = .{ .kernelStackAddress = ml.KSTACK(index) };
     }
@@ -31,10 +34,10 @@ pub var processTable: [param.NPROC]Process = blk: {
 };
 
 pub var initialProcess: *Process = undefined;
-pub var nextProcessId: u32 = 1;
-pub var processIdLock: lk.SpinLock = .{ .name = "nextpid" };
+pub var nextProcessId: std.atomic.Value(u32) = 1;
 
 extern const trampoline: anyopaque;
+const trampoline_physical_address = ad.KernelAddress.fromPtr(&trampoline);
 
 // helps ensure that wakeups of wait()ing
 // parents are not lost. helps obey the
@@ -49,11 +52,11 @@ pub fn mapKernelStacks(kernelPageTable: ad.PageTablePtr) void {
     inline for (0..processTable.len) |index| {
         const virtualAddress = ml.KSTACK(index);
 
-        inline for (0..ml.KSTACK_PAGENUM) |i| {
+        inline for (0..ml.kernel_stack_page_count) |i| {
             const virtual_page_address = virtualAddress.add(i * ad.page_size);
 
             const physical_page = alloc.allocPage() orelse @panic("could not map stacks: kalloc");
-            mem.kernelVirtualMap(kernelPageTable, virtual_page_address, .fromPtr(physical_page), ad.page_size, .{ .write = true, .read = true });
+            mem.kernelVirtualMap(kernelPageTable, virtual_page_address, .fromPtr(physical_page), ad.page_size, .{ .write = true, .read = true }) catch @panic("could not map process kernel stack");
         }
     }
 }
@@ -109,26 +112,6 @@ pub const TrapFrame = extern struct {
     t6: u64,
 };
 
-// Saved registers for kernel context switches.
-pub const Context = extern struct {
-    ra: u64,
-    sp: u64,
-
-    // callee-saved
-    s0: u64,
-    s1: u64,
-    s2: u64,
-    s3: u64,
-    s4: u64,
-    s5: u64,
-    s6: u64,
-    s7: u64,
-    s8: u64,
-    s9: u64,
-    s10: u64,
-    s11: u64,
-};
-
 pub const ProcessState = enum {
     unused,
     used,
@@ -144,25 +127,26 @@ lock: lk.SpinLock = .{ .name = "proc" },
 
 // p->lock must be held when using these:
 state: ProcessState = .unused,
-sleepingOnChannel: ?*anyopaque = undefined, // If non-null, sleeping on channel
-isKilled: bool = undefined,
-exitStatus: u32 = undefined, // Exit status to be returned to parent's wait
-id: u32 = undefined, // process id
+sleepingOnChannel: ?*anyopaque = null, // If non-null, sleeping on channel
+isKilled: bool = false,
+exitStatus: u32 = 0, // Exit status to be returned to parent's wait
+id: u32 = 0, // process id
 
 // wait_lock must be held when using this:
-parentProcess: ?*Process = undefined, // null for root process
+parentProcess: ?*Process = null, // null for root process
 
 // these are private to the process, so p->lock need not be held.
 kernelStackAddress: ad.UserAddress, // Virtual address of kernel stack
-size: usize = undefined, // Size of process memory (bytes)
-pageTable: ad.PageTablePtr = undefined, // User page table
-topFreeVirtualPage: ad.UserAddress = .fromInt(ml.TRAPFRAME - 2 * ad.page_size), // The highest free user virtual mem page. Starts at TRAPFRAME - 2*PGSIZE and goes down as pages are used.
-trapFrame: *TrapFrame = undefined, // data page for trampoline.S
+size: usize = 0, // Size of process memory (bytes)
+pageTable: ?ad.PageTablePtr = null, // User page table
+topFreeVirtualPage: ad.UserAddress = ml.trapframe_virtual_address.sub(2 * ad.page_size), // The highest free user virtual mem page. Starts at TRAPFRAME - 2*PGSIZE and goes down as pages are used.
+trapFrame: ?*TrapFrame = null, // data page for trampoline.S
 context: Context = undefined, // swtch() here to run process
 openFiles: [param.NOFILE]*c.struct_file = undefined, // Open files
 currentWorkingDirectory: *c.struct_inode = undefined,
-name: [16]u8 = undefined, // for debugging
-ownedRingbufsCount: usize = undefined, // Count of ringbufs owned by this process
+nameBuffer: [16]u8 = undefined, // for debugging
+nameLength: u4 = 0,
+ownedRingbufsCount: usize = 0, // Count of ringbufs owned by this process
 
 pub fn getCurrent() ?*Process {
     interrupts.pushOff();
@@ -171,3 +155,139 @@ pub fn getCurrent() ?*Process {
     interrupts.popOff();
     return proc;
 }
+
+fn allocProcessId() u32 {
+    return nextProcessId.fetchAdd(1, .monotonic);
+}
+
+fn allocFoundProcess(process: *Process) !void {
+    errdefer freeProcess(process);
+    errdefer process.lock.release();
+
+    process.id = allocProcessId();
+    process.state = .used;
+
+    // Allocate a trapframe page.
+    const trap_page = alloc.allocPage() orelse return error.FailedMemAllocate;
+    process.trapFrame = @ptrCast(trap_page);
+
+    // An empty user page table.
+    process.pageTable = try createPagetable(process);
+
+    // Set up new context to start executing at forkret,
+    // which returns to user space.
+    @memset(process.context, 0);
+    process.context.ra = @intFromPtr(forkret);
+    process.context.sp = process.kernelStackAddress.add(ml.kernel_stack_page_count * ad.page_size).toInt();
+}
+
+// Look in the process table for an UNUSED proc.
+// If found, initialize state required to run in the kernel,
+// and return with p->lock held.
+// If there are no free procs, or a memory allocation fails, return 0.
+fn allocProcess() ?*Process {
+    for (processTable) |process| {
+        process.lock.acquire();
+        if (process.state == .unused) {
+            allocFoundProcess(process) catch return null;
+            return process;
+        }
+        process.lock.release();
+    }
+    return null;
+}
+
+// free a proc structure and the data hanging from it,
+// including user pages.
+// p->lock must be held.
+fn freeProcess(process: *Process) void {
+    if (process.ownedRingbufsCount > 0) {
+        ringbuf.ringbuf_disown_all(process);
+    }
+    if (process.trapFrame) |trapFrame| {
+        alloc.freePage(@ptrCast(trapFrame));
+    }
+    process.trapFrame = null;
+
+    if (process.pageTable) |pageTable| {
+        freePageTable(pageTable, process.size);
+    }
+    process.pageTable = null;
+    process.topFreeVirtualPage = .fromInt(ml.trapframe_virtual_address - 2 * ad.page_size);
+    process.size = 0;
+    process.ownedRingbufsCount = 0;
+    process.id = 0;
+    process.parentProcess = null;
+    process.nameLength = 0;
+    process.sleepingOnChannel = null;
+    process.isKilled = false;
+    process.exitStatus = 0;
+    process.state = .unused;
+}
+
+// Create a user page table for a given process, with no user memory,
+// but with trampoline and trapframe pages.
+fn createPagetable(process: *Process) !ad.PageTablePtr {
+    // An empty page table.
+    const pageTable = try mem.uvmCreate();
+    errdefer mem.uvmFree(pageTable, 0);
+
+    // map the trampoline code (for system call return)
+    // at the highest user virtual address.
+    // only the supervisor uses it, on the way
+    // to/from user space, so not PTE_U.
+    try mem.kernelVirtualMap(pageTable, ml.trampoline_virtual_address, trampoline_physical_address, ad.page_size, .{ .read = true, .write = true });
+    errdefer mem.uvmUnmap(pageTable, ml.trampoline_virtual_address, 1, false);
+
+    // map the trapframe page just below the trampoline page, for
+    // trampoline.S.
+    try mem.kernelVirtualMap(pageTable, ml.trapframe_virtual_address, .fromPtr(process.trapFrame), ad.page_size, .{ .read = true, .write = true });
+    errdefer mem.uvmUnmap(pageTable, ml.trapframe_virtual_address, 1, false);
+
+    return pageTable;
+}
+
+// Free a process's page table, and free the
+// physical memory it refers to.
+fn freePageTable(pageTable: ad.PageTablePtr, size: usize) void {
+    errdefer mem.uvmUnmap(pageTable, ml.trampoline_virtual_address, 1, false);
+    errdefer mem.uvmUnmap(pageTable, ml.trapframe_virtual_address, 1, false);
+    errdefer mem.uvmFree(pageTable, size);
+}
+
+// a user program that calls exec("/init")
+// assembled from ../user/initcode.S
+// od -t xC ../user/initcode
+const initcode: [_]u8 = {
+  0x17, 0x05, 0x00, 0x00, 0x13, 0x05, 0x45, 0x02,
+  0x97, 0x05, 0x00, 0x00, 0x93, 0x85, 0x35, 0x02,
+  0x93, 0x08, 0x70, 0x00, 0x73, 0x00, 0x00, 0x00,
+  0x93, 0x08, 0x20, 0x00, 0x73, 0x00, 0x00, 0x00,
+  0xef, 0xf0, 0x9f, 0xff, 0x2f, 0x69, 0x6e, 0x69,
+  0x74, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00 
+};
+
+// Set up first user process.
+pub fn initFirstUser() void {
+    initialProcess = allocProcess() orelse @panic("could not find spot for init process");
+    defer initialProcess.lock.release();
+
+
+  // allocate one user page and copy initcode's instructions
+  // and data into it.
+    mem.uvmFirst(initialProcess.pageTable, initcode[0..]);
+    initialProcess.size = ad.page_size;
+
+  // prepare for the very first "return" from kernel to user.
+    initialProcess.trapFrame.epc = 0; // user program counter
+    initialProcess.trapFrame.sp = ad.page_size;// user stack pointer
+    
+    const name = "initcode";
+    @memcpy(initialProcess.nameBuffer, name);
+    initialProcess.nameLength = name.len;
+
+    initialProcess.currentWorkingDirectory = c.namei("/");
+    initialProcess.state = .runnable;
+}
+

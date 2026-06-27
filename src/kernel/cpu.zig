@@ -3,7 +3,7 @@ const param = common.param;
 const Register = common.riscv.Register;
 const csr = @import("csr.zig");
 const Process = @import("process.zig");
-const Context = Process.Context;
+const Context = common.riscv.Context;
 
 const c = @cImport({
     @cInclude("kernel/types.h");

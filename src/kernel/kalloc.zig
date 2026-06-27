@@ -5,8 +5,6 @@ const ad = @import("address.zig");
 const assert = std.debug.assert;
 const log = std.log.scoped(.kalloc);
 
-// first address after kernel.
-pub const end = @extern([*c]c_char, .{ .name = "end" });
 
 const Block = extern struct {
     next: ?*Block,
@@ -17,14 +15,12 @@ var freelist: ?*Block = null;
 
 pub export fn kinit() void {
     log.info("setting up page allocator", .{});
-    freerange(@ptrCast(end), @ptrFromInt(memlayout.PHYSTOP));
+    freerange(memlayout.kernelEndAddress(), memlayout.physical_stop_address);
 }
 
-pub export fn freerange(pa_start: *anyopaque, pa_end: *anyopaque) void {
-    const p_start_offset: usize = @intFromPtr(pa_start);
-    var p_offset = std.mem.alignForward(usize, p_start_offset, ad.page_size);
-    const p_end_offset: usize = @intFromPtr(pa_end);
-    while (p_offset + ad.page_size <= p_end_offset) : (p_offset += ad.page_size) {
+pub fn freerange(pa_start: ad.KernelAddress, pa_end: ad.KernelAddress) void {
+    var p_offset = std.mem.alignForward(usize, pa_start.toInt(), ad.page_size);
+    while (p_offset + ad.page_size <= pa_end.toInt()) : (p_offset += ad.page_size) {
         const ptr: [*]u8 = @ptrFromInt(p_offset);
         freePage(@alignCast(ptr[0..ad.page_size])) catch {
             @panic("freerange error");
@@ -89,6 +85,7 @@ pub const page_allocator = std.mem.Allocator{
     .vtable = &std.mem.Allocator.VTable{
         .alloc = alloc,
         .resize = resize,
+        .remap = remap,
         .free = free,
     },
 };
@@ -152,4 +149,12 @@ fn free(_: *anyopaque, slice: []u8, log2_buf_align: u8, return_address: usize) v
     for (0..page_count) |i| {
         freePage(@alignCast(slice.ptr[i * ad.page_size ..][0..ad.page_size])) catch @panic("Could not free page");
     }
+}
+
+fn remap(_: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+    //  TODO: implement
+    _ = memory;
+    _ = alignment;
+    _ = new_len;
+    _ = ret_addr;
 }

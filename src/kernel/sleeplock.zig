@@ -20,42 +20,41 @@ const c = @cImport({
 const SleepLock = @This();
 // Long-term locks for processes
 
-    isLocked: bool = false, // Is the lock held?
-    spinlock: SpinLock = .{ .name = "sleep lock" }, // spinlock protecting this sleep lock
-    pid: ?usize = null,
+isLocked: bool = false, // Is the lock held?
+spinlock: SpinLock = .{ .name = "sleep lock" }, // spinlock protecting this sleep lock
+pid: ?usize = null,
 
-    // debug info
-    name: ?[]const u8 = null,
+// debug info
+name: ?[]const u8 = null,
 
-    pub fn acquire(self: *SleepLock) void {
-        self.spinlock.acquire();
-        defer self.spinlock.release();
+pub fn acquire(self: *SleepLock) void {
+    self.spinlock.acquire();
+    defer self.spinlock.release();
 
-        while (self.isLocked) {
-            self.spinlock.sleep(self);
-        }
-
-        self.isLocked = true;
-        self.pid = c.myproc().*.pid;
+    while (self.isLocked) {
+        self.spinlock.sleep(self);
     }
 
-    pub fn release(self: *SleepLock) void {
-        self.spinlock.acquire();
-        defer self.spinlock.release();
+    self.isLocked = true;
+    self.pid = c.myproc().*.pid;
+}
 
-        self.isLocked = false;
-        self.pid = null;
+pub fn release(self: *SleepLock) void {
+    self.spinlock.acquire();
+    defer self.spinlock.release();
 
-        c.wakeup(self);
-    }
+    self.isLocked = false;
+    self.pid = null;
 
-    pub fn isHolding(self: *SleepLock) bool {
-        self.spinlock.acquire();
-        defer self.spinlock.release();
+    c.wakeup(self);
+}
 
-        return self.isLocked and (self.pid == c.myproc().*.pid);
-    }
+pub fn isHolding(self: *SleepLock) bool {
+    self.spinlock.acquire();
+    defer self.spinlock.release();
 
+    return self.isLocked and (self.pid == c.myproc().*.pid);
+}
 
 export fn initsleeplock(sleeplock: *c.struct_sleeplock, name: [*c]u8) void {
     CSpinlock.init(@ptrCast(&sleeplock.lk), "sleep lock");

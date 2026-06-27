@@ -11,4 +11,4 @@ pub const LOGSIZE = (MAXOPBLOCKS * 3); // max data blocks in on-disk log
 pub const NBUF = (MAXOPBLOCKS * 3); // size of disk block cache
 pub const FSSIZE = 2000; // size of file system in blocks
 pub const MAXPATH = 128; // maximum file path name
-pub const KSTACK_PAGENUM = 2; // pages used for kernel stack
+pub const kernel_stack_page_count = 2; // pages used for kernel stack

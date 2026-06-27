@@ -13,6 +13,7 @@ const plic = @import("plic.zig");
 const console = @import("console.zig");
 const trap = @import("trap.zig");
 const memory = @import("memory.zig");
+const Process = @import("process.zig");
 
 const log = std.log.scoped(.kmain);
 
@@ -25,7 +26,6 @@ pub fn kmain() void {
         Kalloc.kinit(); // set up allocator (zig)
         memory.kernelMemoryInit(); // create kernel page table
         memory.kernelMemoryHartInit(); // turn on paging
-        c.procinit(); // process table
         trap.initHart(); // install kernel trap vector
         plic.init(); // set up interrupt controller
         plic.initHart(); // ask PLIC for device interrupts
@@ -33,7 +33,7 @@ pub fn kmain() void {
         c.iinit(); // inode table
         c.fileinit(); // file table
         c.virtio_disk_init(); // emulated hard disk
-        c.userinit(); // first user process
+        Process.initFirstUser(); // first user process
         started.store(true, .seq_cst);
     } else {
         while (!started.load(.seq_cst)) {}

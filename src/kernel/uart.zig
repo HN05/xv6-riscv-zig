@@ -4,6 +4,7 @@ const memlayout = @import("memlayout.zig");
 const SpinLock = @import("spinlock.zig").SpinLock;
 const log_root = @import("klog.zig");
 const console = @import("console.zig");
+const interrupts = @import("interrupts.zig");
 
 const c = @cImport({
     @cInclude("kernel/types.h");
@@ -98,15 +99,14 @@ pub fn putCharacter(ch: u8) void {
 // to echo characters. it spins waiting for the uart's
 // output register to be empty.
 pub fn putCharSync(ch: u8) void {
-    c.push_off();
+    interrupts.popOff();
+    defer interrupts.popOff();
 
     if (log_root.panicked) while (true) {};
 
     // wait for Transmit Holding Empty to be set in LSR.
     while ((readReg(line_status_register) & line_status_transmit_idle) == 0) {}
     writeReg(transmit_holding_register, ch);
-
-    c.pop_off();
 }
 
 /// if the UART is idle, and a character is waiting
@@ -165,15 +165,15 @@ pub fn interrupt() void {
     start();
 }
 
-fn getRegPtr(reg: usize) *volatile u8 {
-    return @ptrFromInt(memlayout.UART0 + reg);
+fn getRegPtr(register_offset: usize) *volatile u8 {
+    return memlayout.uart0_base_address.add(register_offset).asPtr(*volatile u8);
 }
 
-fn readReg(reg: usize) u8 {
-    return getRegPtr(reg).*;
+fn readReg(register_offset: usize) u8 {
+    return getRegPtr(register_offset).*;
 }
 
-fn writeReg(reg: usize, value: u8) void {
-    getRegPtr(reg).* = value;
+fn writeReg(register_offset: usize, value: u8) void {
+    getRegPtr(register_offset).* = value;
 }
 

@@ -3,6 +3,7 @@
 //
 const std = @import("std");
 const ml = @import("memlayout.zig");
+const Cpu = @import("cpu.zig");
 
 const c = @cImport({
     @cInclude("kernel/types.h");
@@ -10,35 +11,39 @@ const c = @cImport({
     @cInclude("kernel/defs.h");
 });
 
-fn getcpu() usize {
-    return @intCast(c.cpuid());
-}
+pub const Irq = enum(u32) {
+    uart = ml.uart0_irq,
+    virtio = ml.virtio0_irq,
+    null = 0,
+    _,
+};
 
 pub fn init() void {
     // set desired IRQ priorities non-zero (otherwise disabled).
-    ml.PLIC_PRIORITY(ml.UART0_IRQ).* = 1;
-    ml.PLIC_PRIORITY(ml.VIRTIO0_IRQ).* = 1;
+    ml.plic.priorityRegister(ml.uart0_irq).* = 1;
+    ml.plic.priorityRegister(ml.virtio0_irq).* = 1;
 }
 
 pub fn initHart() void {
-    const hart = getcpu();
+    const hart = Cpu.getCurrentId();
 
     // set enable bits for this hart's S-mode
     // for the uart and virtio disk.
-    ml.PLIC_SENABLE(hart).* = (1 << ml.UART0_IRQ) | (1 << ml.VIRTIO0_IRQ);
+    ml.plic.supervisorEnableRegister(hart).* = (1 << ml.uart0_irq) | (1 << ml.virtio0_irq);
+
     // set this hart's S-mode priority threshold to 0.
-    ml.PLIC_SPRIORITY(hart).* = 0;
+    ml.plic.supervisorPriorityThresholdRegister(hart).* = 0;
 }
 
 // ask the PLIC what interrupt we should serve.
-pub fn claim() u32 {
-    const hart = getcpu();
-    const irq = ml.PLIC_SCLAIM(hart);
-    return irq.*;
+pub fn claim() Irq {
+    const hart = Cpu.getCurrentId(); 
+    const irq = ml.plic.machineClaimCompleteRegister(hart).*;
+    return @enumFromInt(irq);
 }
 
 // tell the PLIC we've served this IRQ.
-pub fn complete(irq: u32) void {
-    const hart = getcpu();
-    ml.PLIC_SCLAIM(hart).* = irq;
+pub fn complete(irq: Irq) void {
+    const hart = Cpu.getCurrentId();
+    ml.plic.machineClaimCompleteRegister(hart).* = @intFromEnum(irq);
 }

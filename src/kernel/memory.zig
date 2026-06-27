@@ -13,12 +13,19 @@ const alloc = @import("kalloc.zig");
 const ad = @import("address.zig");
 const ml = @import("memlayout.zig");
 const csr = @import("csr.zig");
+const Process = @import("process.zig");
 
 var kernelPagetable: ad.PageTablePtr = undefined;
 
 extern const etext: anyopaque; // kernel.ld sets this to end of kernel code.
-
 extern const trampoline: anyopaque;
+
+fn trampolineAddress() ad.KernelAddress {
+    return .fromPtr(&trampoline);
+}
+fn etextAddress() ad.KernelAddress {
+    return .fromPtr(&etext);
+}
 
 // flush the TLB.
 pub inline fn sfence_vma() void {
@@ -30,15 +37,22 @@ pub inline fn sfence_vma() void {
 // physical addresses starting at pa. va and size might not
 // be page-aligned.
 // allocate a needed page-table page.
-fn virtualMap(pgTable: ad.PageTablePtr, virtualAddress: ad.UserAddress, physicalAddress: ad.KernelAddress, size: usize, permissions: ad.PagePermissions, isUser: bool) void {
-    if (size == 0) @panic("ke: kerenelVirtualMap");
+fn virtualMap(
+    pgTable: ad.PageTablePtr,
+    virtualAddress: ad.UserAddress,
+    physicalAddress: ad.KernelAddress,
+    size: usize,
+    permissions: ad.PagePermissions,
+    isUser: bool,
+) !void {
+    if (size == 0) return error.CantMapZeroSize;
     const pageCount = virtualAddress.coveringPages(size);
 
     for (0..pageCount) |i| {
         const offset = i * ad.page_size;
 
-        const pte = walk(pgTable, virtualAddress.add(offset), true) catch @panic("initing kernel memory error");
-        if (pte.valid) @panic("kernelVirtualMap: already mapped page");
+        const pte = try walk(pgTable, virtualAddress.add(offset), true);
+        if (pte.valid) return error.AlreadyMappedPage;
         pte.* = .fromAddress(physicalAddress.add(offset));
         pte.permissions = permissions;
         pte.user = isUser;
@@ -46,12 +60,24 @@ fn virtualMap(pgTable: ad.PageTablePtr, virtualAddress: ad.UserAddress, physical
     }
 }
 
-pub fn kernelVirtualMap(pgTable: ad.PageTablePtr, virtualAddress: ad.UserAddress, physicalAddress: ad.KernelAddress, size: usize, permissions: ad.PagePermissions) void {
-    virtualMap(pgTable, virtualAddress, physicalAddress, size, permissions, false);
+pub fn kernelVirtualMap(
+    pgTable: ad.PageTablePtr,
+    virtualAddress: ad.UserAddress,
+    physicalAddress: ad.KernelAddress,
+    size: usize,
+    permissions: ad.PagePermissions,
+) !void {
+    try virtualMap(pgTable, virtualAddress, physicalAddress, size, permissions, false);
 }
 
-pub fn userVirtualMap(pgTable: ad.PageTablePtr, virtualAddress: ad.UserAddress, physicalAddress: ad.KernelAddress, size: usize, permissions: ad.PagePermissions) void {
-    virtualMap(pgTable, virtualAddress, physicalAddress, size, permissions, true);
+pub fn userVirtualMap(
+    pgTable: ad.PageTablePtr,
+    virtualAddress: ad.UserAddress,
+    physicalAddress: ad.KernelAddress,
+    size: usize,
+    permissions: ad.PagePermissions,
+) !void {
+    try virtualMap(pgTable, virtualAddress, physicalAddress, size, permissions, true);
 }
 
 // Return the address of the PTE in page table pagetable
@@ -97,36 +123,38 @@ pub fn walk(pgTable: ad.PageTablePtr, virtualAddress: ad.UserAddress, doAlloc: b
     return &currentPgTable[virtualAddress.pageIndex(.leaf)];
 }
 
+fn kernelInitMap(pgTable: ad.PageTablePtr, physicalAddress: ad.KernelAddress, size: usize) void {
+    kernelVirtualMap(pgTable, .fromInt(physicalAddress.toInt()), physicalAddress, size, .{ .read = true, .write = true }) catch @panic("initing kernel memory");
+}
+
 // Make a direct-map page table for the kernel.
 fn kernelMemoryMake() ad.PageTablePtr {
     const page = alloc.allocPage() orelse @panic("no mem available");
     @memset(page, 0);
 
     const table: ad.PageTablePtr = @ptrCast(page);
-    const etextAddr = @intFromPtr(&etext);
-    const trampolineAddr = @intFromPtr(&trampoline);
 
     // uart registers
-    kernelVirtualMap(table, .fromInt(ml.UART0), .fromInt(ml.UART0), ad.page_size, .{ .read = true, .write = true });
+    kernelInitMap(table, ml.uart0_base_address, ad.page_size);
 
     // virtio mmio disk interface
-    kernelVirtualMap(table, .fromInt(ml.VIRTIO0), .fromInt(ml.VIRTIO0), ad.page_size, .{ .read = true, .write = true });
+    kernelInitMap(table, ml.virtio0_base_address, ad.page_size);
 
     // PLIC
-    kernelVirtualMap(table, .fromInt(ml.PLIC), .fromInt(ml.PLIC), ml.PLIC_SIZE, .{ .read = true, .write = true });
+    kernelInitMap(table, ml.plic.base_address, ml.plic.size);
 
     // map kernel text executable and read-only.
-    kernelVirtualMap(table, .fromInt(ml.KERNBASE), .fromInt(ml.KERNBASE), etextAddr - ml.KERNBASE, .{ .read = true, .execute = true });
+    kernelInitMap(table, ml.kernel_base_address, etextAddress().offsetFrom(ml.kernel_base_address));
 
     // map kernel data and the physical RAM we'll make use of.
-    kernelVirtualMap(table, .fromInt(etextAddr), .fromInt(etextAddr), ml.PHYSTOP - etextAddr, .{ .read = true, .write = true });
+    kernelInitMap(table, etextAddress(), ml.physical_stop_address.offsetFrom(etextAddress()));
 
     // map the trampoline for trap entry/exit to
     // the highest virtual address in the kernel.
-    kernelVirtualMap(table, .fromInt(ml.TRAMPOLINE), .fromInt(trampolineAddr), ad.page_size, .{ .read = true, .execute = true });
+    kernelVirtualMap(table, ml.trampoline_virtual_address, trampolineAddress(), ad.page_size, .{ .read = true, .execute = true }) catch @panic("initing trampoline");
 
     // allocate and map a kernel stack for each process.
-    c.proc_mapstacks(@intFromPtr(table));
+    Process.mapKernelStacks(table);
 
     return table;
 }
@@ -189,14 +217,14 @@ pub fn uvmCreate() !ad.PageTablePtr {
 // Load the user initcode into address 0 of pagetable,
 // for the very first process.
 // sz must be less than a page.
-pub fn uvmFirst(pgTable: ad.PageTablePtr, source: ad.KernelAddress, size: usize) void {
-    if (size >= ad.page_size) @panic("uvmfirst: more than a page");
+pub fn uvmFirst(pgTable: ad.PageTablePtr, source: []const u8) void {
+    if (source.len >= ad.page_size) @panic("uvmfirst: more than a page");
 
     const page = alloc.kalloc() catch @panic("out of mem uvmFirst");
     @memset(page, 0);
 
-    userVirtualMap(pgTable, .fromInt(0), .fromPtr(page), ad.page_size, .{ .read = true, .write = true, .execute = true });
-    @memmove(page[0..size], source.asPtr([*]const u8));
+    userVirtualMap(pgTable, .fromInt(0), .fromPtr(page), ad.page_size, .{ .read = true, .write = true, .execute = true }) catch @panic("could not map first proccess");
+    @memmove(page, source);
 }
 
 // Allocate PTEs and physical memory to grow process from oldsz to
@@ -214,7 +242,7 @@ pub fn uvmAlloc(pgTable: ad.PageTablePtr, oldSize: usize, newSize: usize, permis
 
         errdefer alloc.kfree(physicalPage);
 
-        userVirtualMap(pgTable, currentPageVA, .fromPtr(physicalPage), ad.page_size, permissions);
+        try userVirtualMap(pgTable, currentPageVA, .fromPtr(physicalPage), ad.page_size, permissions);
     }
     return newSize;
 }
@@ -287,9 +315,9 @@ pub fn uvmCopy(oldTable: ad.PageTablePtr, newTable: ad.PageTablePtr, size: usize
         @memmove(newPage, oldMemory);
 
         if (pte.user) {
-            userVirtualMap(newPage, pageAddr, .fromPtr(newPage), ad.page_size, pte.permissions);
+            try userVirtualMap(newPage, pageAddr, .fromPtr(newPage), ad.page_size, pte.permissions);
         } else {
-            kernelVirtualMap(newPage, pageAddr, .fromPtr(newPage), ad.page_size, pte.permissions);
+            try kernelVirtualMap(newPage, pageAddr, .fromPtr(newPage), ad.page_size, pte.permissions);
         }
     }
 }
