@@ -5,7 +5,6 @@ const ad = @import("address.zig");
 const assert = std.debug.assert;
 const log = std.log.scoped(.kalloc);
 
-
 const Block = extern struct {
     next: ?*Block,
 };
@@ -78,6 +77,22 @@ pub fn allocPage() ?ad.PagePointer {
     }
     const ptr: [*]align(ad.page_size) u8 = @ptrCast(@alignCast(r_o.?));
     return ptr[0..ad.page_size];
+}
+
+pub fn allocPageForce() ad.PagePointer {
+    return allocPage() orelse @panic("could not allocate memory");
+}
+
+pub fn allocPageZeroed() ?ad.PagePointer {
+    const page = allocPage() orelse return null;
+    @memset(page, 0);
+    return page;
+}
+
+pub fn allocZeroedPageForce() ad.PagePointer {
+    const page = allocPageForce();
+    @memset(page, 0);
+    return page;
 }
 
 pub const page_allocator = std.mem.Allocator{

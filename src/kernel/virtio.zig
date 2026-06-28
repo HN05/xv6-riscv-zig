@@ -44,9 +44,26 @@ pub const mmio = struct {
     };
 
     pub const magic_value = Register{ .offset = 0x000, .access = .ro }; // 0x74726976
-    pub const version = Register{ .offset = 0x004, .access = .ro }; // version; should be 2
-    pub const device_id = Register{ .offset = 0x008, .access = .ro }; // device type; 1 is net, 2 is disk
-    pub const vendor_id = Register{ .offset = 0x00c, .access = .ro }; // 0x554d4551
+    pub const expected_magic_value: u32 = 0x74726976; // "virt"
+
+    pub const version = Register{ .offset = 0x004, .access = .ro };
+    pub const expected_version: u32 = 2;
+
+    pub const DeviceId = enum(u32) {
+        none = 0,
+        network = 1,
+        disk = 2,
+        _,
+
+        const register = Register{ .offset = 0x008, .access = .ro };
+
+        pub fn read() DeviceId {
+            return @enumFromInt(register.read());
+        }
+    };
+
+    pub const vendor_id = Register{ .offset = 0x00c, .access = .ro };
+    pub const expected_vendor_id: u32 = 0x554d4551; // "QEMU"
 
     pub const Features = packed struct(u32) {
         // device feature bits
@@ -74,20 +91,46 @@ pub const mmio = struct {
         const device_register = Register{ .offset = 0x010, .access = .ro };
         const driver_register = Register{ .offset = 0x020, .access = .wo };
 
-        pub fn readFeatures() Features {
+        pub fn read() Features {
             return @bitCast(device_register.read());
         }
 
-        pub fn writeFeatures(features: Features) void {
+        pub fn write(features: Features) void {
             driver_register.write(@bitCast(features));
         }
     };
 
-    pub const queue_sel = Register{ .offset = 0x030, .access = .wo }; // select queue
-    pub const queue_num_max = Register{ .offset = 0x034, .access = .ro }; // max size of current queue
-    pub const queue_num = Register{ .offset = 0x038, .access = .wo }; // size of current queue
-    pub const queue_ready = Register{ .offset = 0x044, .access = .rw }; // ready bit
-    pub const queue_notify = Register{ .offset = 0x050, .access = .wo };
+    pub const Queue = struct {
+        const select_register = Register{ .offset = 0x030, .access = .wo }; // select queue
+        const num_max_register = Register{ .offset = 0x034, .access = .ro }; // max size of current queue
+        const num_register = Register{ .offset = 0x038, .access = .wo }; // size of current queue
+        const ready_register = Register{ .offset = 0x044, .access = .rw }; // ready bit
+        const notify_register = Register{ .offset = 0x050, .access = .wo };
+
+        pub fn select(index: u32) void {
+            select_register.write(index);
+        }
+
+        pub fn maxSize() u32 {
+            return num_max_register.read();
+        }
+
+        pub fn setSize(size: u32) void {
+            num_register.write(size);
+        }
+
+        pub fn isReady() bool {
+            return ready_register.read() != 0;
+        }
+
+        pub fn setReady(value: bool) void {
+            ready_register.write(if (value) 1 else 0);
+        }
+
+        pub fn notifyDevice(index: u32) void {
+            notify_register.write(index);
+        }
+    };
 
     pub const interrupt_status = Register{ .offset = 0x060, .access = .ro };
     pub const interrupt_ack = Register{ .offset = 0x064, .access = .wo };
@@ -102,11 +145,11 @@ pub const mmio = struct {
 
         pub const register = Register{ .offset = 0x070, .access = .rw };
 
-        pub fn readStatus() Status {
+        pub fn read() Status {
             return @bitCast(Status.register.read());
         }
 
-        pub fn writeStatus(status: Status) void {
+        pub fn write(status: Status) void {
             Status.register.write(@bitCast(status));
         }
     };
@@ -136,14 +179,14 @@ pub const mmio = struct {
 pub const num_virtio_descriptors = 8;
 
 // a single descriptor, from the spec.
-const QueueDescriptor = extern struct {
+pub const QueueDescriptor = extern struct {
     address: u64,
     length: u32,
     flags: QueueDescriptorFlags,
     next: u16,
 };
 
-const QueueDescriptorFlags = packed struct(u16) {
+pub const QueueDescriptorFlags = packed struct(u16) {
     next: bool = false, // chained with another descriptor
     write: bool = false, // device writes
     indirect: bool = false,
@@ -151,7 +194,7 @@ const QueueDescriptorFlags = packed struct(u16) {
 };
 
 // the (entire) avail ring, from the spec.
-const QueueAvailable = extern struct {
+pub const QueueAvailable = extern struct {
     flags: u16, // always zero
     idx: u16, // driver will write ring[idx] next
     ring: [num_virtio_descriptors]u16, // descriptor numbers of chain heads
@@ -160,12 +203,12 @@ const QueueAvailable = extern struct {
 
 // one entry in the "used" ring, with which the
 // device tells the driver about completed requests.
-const QueueUsedElement = extern struct {
+pub const QueueUsedElement = extern struct {
     id: u32, // index of start of completed descriptor chain
     length: u32,
 };
 
-const QueueUsed = extern struct {
+pub const QueueUsed = extern struct {
     flags: u16, // always zero
     idx: u16, // device increments when it adds a ring[] entry
     ring: [num_virtio_descriptors]QueueUsedElement,
@@ -173,7 +216,7 @@ const QueueUsed = extern struct {
 
 // these are specific to virtio block devices, e.g. disks,
 // described in Section 5.2 of the spec.
-const BlockRequestType = enum(u32) {
+pub const BlockRequestType = enum(u32) {
     in = 0, // read from disk
     out = 1, // write to disk
 };
@@ -181,18 +224,18 @@ const BlockRequestType = enum(u32) {
 // the format of the first descriptor in a disk request.
 // to be followed by two more descriptors containing
 // the block, and a one-byte status.
-const BlockRequest = extern struct {
+pub const BlockRequest = extern struct {
     type: BlockRequestType,
     _reserved: u32,
     sector: u64,
 };
 
-const StatusBuffer = struct {
+pub const StatusBuffer = struct {
     buffer: *Buffer,
     status: u8,
 };
 
-const Disk = struct {
+pub const Disk = struct {
     // a set (not a ring) of DMA descriptors, with which the
     // driver tells the device where to read and write individual
     // disk operations. there are NUM descriptors.

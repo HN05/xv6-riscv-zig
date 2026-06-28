@@ -14,6 +14,7 @@ const print = @import("klog.zig").print;
 const scheduler = @import("scheduler.zig");
 const File = @import("file.zig");
 const Inode = @import("inode.zig");
+const trap = @import("trap.zig");
 
 pub var processTable: [param.NPROC]Process = blk: {
     var table: [param.NPROC]Process = undefined;
@@ -300,31 +301,23 @@ pub fn initFirstUser() void {
     initialProcess.state_unsafe = .runnable;
 }
 
+var first_fork = true;
 // A fork child's very first scheduling by scheduler()
 // will switchContext to forkret.
 fn forkReturn() void {
 
     // Still holding p->lock from scheduler.
-    getCurrent().?.lock.release();
+    getCurrentForce().lock.release();
+
+    if (first_fork) {
+        // File system initialization must be run in the context of a
+        // regular process (e.g., because it calls sleep), and thus cannot
+        // be run from main().
+        first_fork = false;
+        c.fsinit(ROOTDEV);
+    }
+    trap.usertrapret();
 }
-// void
-// forkret(void)
-// {
-//   static int first = 1;
-//
-//   release(&myproc()->lock);
-//
-//   if (first) {
-//     // File system initialization must be run in the context of a
-//     // regular process (e.g., because it calls sleep), and thus cannot
-//     // be run from main().
-//     first = 0;
-//     fsinit(ROOTDEV);
-//   }
-//
-//   usertrapret();
-// }
-//
 
 // Grow or shrink user memory by n bytes.
 pub fn changeProcessSize(size_diff: i64) !void {
@@ -484,7 +477,6 @@ pub fn wait(exit_status_destination: ?ad.UserAddress) !u32 {
         scheduler.sleep(current_process, waitLock);
     }
 }
-
 
 // Kill the process with the given pid.
 // The victim won't exit until it tries to return

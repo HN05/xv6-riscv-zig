@@ -82,7 +82,7 @@ export fn usertrap() void {
 //
 // return to user space
 //
-export fn usertrapret() void {
+pub fn usertrapret() void {
     const process = Process.getCurrentForce();
     const trampoline_int = memlayout.trampolinePhysicalAddress().toInt();
     const uservec_int = @intFromPtr(&uservec);

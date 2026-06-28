@@ -7,107 +7,97 @@
 
 const ml = @import("memlayout.zig");
 const virtio = @import("virtio.zig");
+const alloc = @import("kalloc.zig");
 
-// the address of virtio mmio register r.
-fn getRegister(register: usize) *volatile u32 {
-    return ml.virtio0_base_address.add(register).asPtr(*volatile u32);
+var disk: virtio.Disk = undefined;
+
+pub fn init() void {
+    if (virtio.mmio.magic_value.read() != virtio.mmio.expected_magic_value) @panic("wrong magic number virtio");
+    if (virtio.mmio.version.read() != virtio.mmio.expected_version) @panic("wrong version number virtio");
+    if (virtio.mmio.vendor_id.read() != virtio.mmio.expected_vendor_id) @panic("wrong vendor_id virtio");
+    if (virtio.mmio.DeviceId.read() != .disk) @panic("virtio device is not a disk");
+
+    // reset device
+    var status: virtio.mmio.Status = .{};
+    status.write();
+
+    // set ACKNOWLEDGE status bit
+    status.acknowledge = true;
+    status.write();
+
+    // set DRIVER status bit
+    status.driver = true;
+    status.write();
+
+    // negotiate features
+    const features: virtio.mmio.Features = .{
+        .blk_ro = true,
+        .blk_scsi = true,
+        .blk_config_wce = true,
+        .blk_mq = true,
+        .any_layout = true,
+        .ring_event_idx = true,
+        .ring_indirect_desc = true,
+    };
+    features.write();
+
+    // tell device that feature negotiation is complete.
+    status.features_ok = true;
+    status.write();
+
+    // re-read status to ensure FEATURES_OK is set.
+    status = .read();
+    if (!status.features_ok) @panic("virtio disk features_ok unset");
+
+    // initialize queue 0.
+    virtio.mmio.Queue.select(0);
+
+    // ensure queue 0 is not in use.
+    if (virtio.mmio.Queue.isReady()) @panic("virtio disk should not be ready");
+
+    // check maximum queue size.
+    const max = virtio.mmio.queue_num_max.read();
+    if (max == 0) @panic("virtio disk has no queue 0");
+    if (max < virtio.num_virtio_descriptors) @panic("virtio disk max queue too short");
+
+    // allocate and zero queue memory.
+    //  TODO: allocate memory more effectivly
+    const descriptor: *virtio.QueueDescriptor = alloc.allocZeroedPageForce();
+    const available: *virtio.QueueAvailable = alloc.allocZeroedPageForce();
+    const used: *virtio.QueueUsed = alloc.allocZeroedPageForce();
+
+    // set queue size.
+    virtio.mmio.Queue.setSize(virtio.num_virtio_descriptors);
+
+    // write physical addresses.
+    virtio.mmio.queue_descriptor_table.write(.fromPtr(descriptor));
+    virtio.mmio.driver_desc.write(.fromPtr(available));
+    virtio.mmio.device_desc.write(.fromPtr(used));
+
+    // queue is ready.
+    virtio.mmio.Queue.setReady(true);
+
+    // init disk
+    disk = .{
+        .desc = descriptor,
+        .available = available,
+        .used = used,
+        .vdisk_lock = .{ .name = "virtio disk" },
+        .used_idx = 0,
+        .operations = undefined,
+        .free = undefined,
+        .info = undefined,
+    };
+
+    // all NUM descriptors start out unused.
+    @memset(&disk.free, true);
+
+    // tell device we're completely ready.
+    status.driver_ok = true;
+    status.write();
+
+    // plic.c and trap.c arrange for interrupts from VIRTIO0_IRQ.
 }
-
-const disk = virtio.Disk{};
-
-// void
-// virtio_disk_init(void)
-// {
-//   uint32 status = 0;
-//
-//   initlock(&disk.vdisk_lock, "virtio_disk");
-//
-//   if(*R(VIRTIO_MMIO_MAGIC_VALUE) != 0x74726976 ||
-//      *R(VIRTIO_MMIO_VERSION) != 2 ||
-//      *R(VIRTIO_MMIO_DEVICE_ID) != 2 ||
-//      *R(VIRTIO_MMIO_VENDOR_ID) != 0x554d4551){
-//     panic("could not find virtio disk");
-//   }
-//
-//   // reset device
-//   *R(VIRTIO_MMIO_STATUS) = status;
-//
-//   // set ACKNOWLEDGE status bit
-//   status |= VIRTIO_CONFIG_S_ACKNOWLEDGE;
-//   *R(VIRTIO_MMIO_STATUS) = status;
-//
-//   // set DRIVER status bit
-//   status |= VIRTIO_CONFIG_S_DRIVER;
-//   *R(VIRTIO_MMIO_STATUS) = status;
-//
-//   // negotiate features
-//   uint64 features = *R(VIRTIO_MMIO_DEVICE_FEATURES);
-//   features &= ~(1 << VIRTIO_BLK_F_RO);
-//   features &= ~(1 << VIRTIO_BLK_F_SCSI);
-//   features &= ~(1 << VIRTIO_BLK_F_CONFIG_WCE);
-//   features &= ~(1 << VIRTIO_BLK_F_MQ);
-//   features &= ~(1 << VIRTIO_F_ANY_LAYOUT);
-//   features &= ~(1 << VIRTIO_RING_F_EVENT_IDX);
-//   features &= ~(1 << VIRTIO_RING_F_INDIRECT_DESC);
-//   *R(VIRTIO_MMIO_DRIVER_FEATURES) = features;
-//
-//   // tell device that feature negotiation is complete.
-//   status |= VIRTIO_CONFIG_S_FEATURES_OK;
-//   *R(VIRTIO_MMIO_STATUS) = status;
-//
-//   // re-read status to ensure FEATURES_OK is set.
-//   status = *R(VIRTIO_MMIO_STATUS);
-//   if(!(status & VIRTIO_CONFIG_S_FEATURES_OK))
-//     panic("virtio disk FEATURES_OK unset");
-//
-//   // initialize queue 0.
-//   *R(VIRTIO_MMIO_QUEUE_SEL) = 0;
-//
-//   // ensure queue 0 is not in use.
-//   if(*R(VIRTIO_MMIO_QUEUE_READY))
-//     panic("virtio disk should not be ready");
-//
-//   // check maximum queue size.
-//   uint32 max = *R(VIRTIO_MMIO_QUEUE_NUM_MAX);
-//   if(max == 0)
-//     panic("virtio disk has no queue 0");
-//   if(max < NUM)
-//     panic("virtio disk max queue too short");
-//
-//   // allocate and zero queue memory.
-//   disk.desc = kalloc();
-//   disk.avail = kalloc();
-//   disk.used = kalloc();
-//   if(!disk.desc || !disk.avail || !disk.used)
-//     panic("virtio disk kalloc");
-//   memset(disk.desc, 0, PGSIZE);
-//   memset(disk.avail, 0, PGSIZE);
-//   memset(disk.used, 0, PGSIZE);
-//
-//   // set queue size.
-//   *R(VIRTIO_MMIO_QUEUE_NUM) = NUM;
-//
-//   // write physical addresses.
-//   *R(VIRTIO_MMIO_QUEUE_DESC_LOW) = (uint64)disk.desc;
-//   *R(VIRTIO_MMIO_QUEUE_DESC_HIGH) = (uint64)disk.desc >> 32;
-//   *R(VIRTIO_MMIO_DRIVER_DESC_LOW) = (uint64)disk.avail;
-//   *R(VIRTIO_MMIO_DRIVER_DESC_HIGH) = (uint64)disk.avail >> 32;
-//   *R(VIRTIO_MMIO_DEVICE_DESC_LOW) = (uint64)disk.used;
-//   *R(VIRTIO_MMIO_DEVICE_DESC_HIGH) = (uint64)disk.used >> 32;
-//
-//   // queue is ready.
-//   *R(VIRTIO_MMIO_QUEUE_READY) = 0x1;
-//
-//   // all NUM descriptors start out unused.
-//   for(int i = 0; i < NUM; i++)
-//     disk.free[i] = 1;
-//
-//   // tell device we're completely ready.
-//   status |= VIRTIO_CONFIG_S_DRIVER_OK;
-//   *R(VIRTIO_MMIO_STATUS) = status;
-//
-//   // plic.c and trap.c arrange for interrupts from VIRTIO0_IRQ.
-// }
 //
 // // find a free descriptor, mark it non-free, return its index.
 // static int

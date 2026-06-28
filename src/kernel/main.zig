@@ -9,6 +9,7 @@ const memory = @import("memory.zig");
 const Process = @import("process.zig");
 const Cpu = @import("cpu.zig");
 const scheduler = @import("scheduler.zig");
+const virtio = @import("virtiodriver.zig");
 
 const log = std.log.scoped(.kmain);
 
@@ -27,7 +28,7 @@ pub fn kmain() void {
         c.binit(); // buffer cache
         c.iinit(); // inode table
         c.fileinit(); // file table
-        c.virtio_disk_init(); // emulated hard disk
+        virtio.init(); // emulated hard disk
         Process.initFirstUser(); // first user process
         started.store(true, .seq_cst);
     } else {
