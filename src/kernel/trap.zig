@@ -12,6 +12,7 @@ const Cpu = @import("cpu.zig");
 const Process = @import("process.zig");
 const syscall = @import("syscall.zig");
 const scheduler = @import("scheduler.zig");
+const virtio = @import("virtio.zig");
 
 extern const uservec: anyopaque;
 extern const userret: anyopaque;
@@ -178,7 +179,7 @@ fn handleDeviceInterrupt(scause: csr.Scause) void {
             const irq = plic.claim();
             switch (irq) {
                 .uart => uart.interrupt(),
-                .virtio => c.virtio_disk_intr(),
+                .virtio => virtio.disk_driver.interrupt(),
                 else => print("unexpected interrupt irq={d}\n", .{irq}),
             }
             // the PLIC allows each device to raise at most one

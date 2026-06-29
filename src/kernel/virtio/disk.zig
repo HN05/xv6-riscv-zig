@@ -1,6 +1,8 @@
 const SpinLock = @import("../spinlock.zig");
 const Buffer = @import("../buffer.zig");
 
+pub const sector_size = 512;
+
 // this many virtio descriptors.
 // must be a power of two.
 pub const queue_size = 8;
@@ -11,7 +13,7 @@ pub const DiskQueue = @import("queue.zig").Queue(queue_size);
 // disk operations. there are NUM descriptors.
 // most commands consist of a "chain" (a linked list) of a couple of
 // these descriptors.
-descriptor: [queue_size]DiskQueue.Descriptor,
+descriptor: *[queue_size]DiskQueue.Descriptor,
 
 // a ring in which the driver writes descriptor numbers
 // that the driver would like the device to process
@@ -51,11 +53,18 @@ pub const BlockRequestType = enum(u32) {
 // the block, and a one-byte status.
 pub const BlockRequest = extern struct {
     type: BlockRequestType,
-    _reserved: u32,
+    reserved: u32 = 0,
     sector: u64,
 };
 
+pub const BufferStatus = enum(u8) {
+    ok = 0,
+    io_error = 1,
+    unsupported = 2,
+    pending = 0xff, // driver-only sentinel, not written by device
+};
+
 pub const StatusBuffer = struct {
-    buffer: *Buffer,
-    status: u8,
+    buffer: ?*Buffer,
+    status: BufferStatus, // passed to device, and overwritten when it is finished
 };

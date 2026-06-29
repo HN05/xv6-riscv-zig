@@ -17,6 +17,8 @@ const SpinLock = @import("spinlock.zig");
 const SleepLock = @import("sleeplock.zig");
 const common = @import("common");
 const Device = @import("device.zig");
+const virtio = @import("virtio.zig");
+const fs = @import("filesystem.zig");
 
 const Buffer = @This();
 
@@ -28,7 +30,7 @@ lock: SleepLock = .{ .name = "buffer" },
 reference_count: u32 = 0,
 previous: *Buffer = undefined, // LRU cache list
 next: *Buffer = undefined,
-data: [common.param.BSIZE]u8 = undefined,
+data: [fs.BSIZE]u8 = undefined,
 
 // cache
 const Cache = struct {
@@ -96,7 +98,7 @@ comptime {
 pub fn read(device: Device.ID, block_number: u32) *Buffer {
     const buffer = cache.get_buffer(device, block_number);
     if (!buffer.is_valid) {
-        c.virtio_disk_rw(buffer, 0);
+        virtio.disk_driver.readWrite(buffer, false);
         buffer.is_valid = true;
     }
     return buffer;
@@ -105,7 +107,7 @@ pub fn read(device: Device.ID, block_number: u32) *Buffer {
 // Write buffer's contents to disk.  Must be locked.
 pub fn write(buffer: *Buffer) void {
     if (!buffer.lock.isHolding()) @panic("buffer write");
-    c.virtio_disk_rw(buffer, 0);
+    virtio.disk_driver.readWrite(buffer, true);
 }
 
 // Release a locked buffer.

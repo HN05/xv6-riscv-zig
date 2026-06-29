@@ -12,7 +12,7 @@ pub fn Queue(comptime queue_size: usize) type {
             address: u64,
             length: u32,
             flags: DescriptorFlags,
-            next: u16,
+            next_index: u16,
         };
 
         pub const DescriptorFlags = packed struct(u16) {
@@ -30,7 +30,7 @@ pub fn Queue(comptime queue_size: usize) type {
         // the (entire) avail ring, from the spec.
         pub const Available = extern struct {
             flags: AvailableFlags,
-            idx: u16, // driver will write ring[idx] next
+            idx: u16, // driver will write ring[idx % queue_size] next, is a monotonic counter
             ring: [queue_size]u16, // descriptor numbers of chain heads
             used_event: u16, // only meaningful with event_idx; otherwise padding
         };
@@ -51,6 +51,7 @@ pub fn Queue(comptime queue_size: usize) type {
             flags: UsedFlags,
             idx: u16, // device increments when it adds a ring[] entry
             ring: [queue_size]UsedElement,
+            used_event: u16, // only meaningful with event_idx; otherwise padding
         };
     };
 }

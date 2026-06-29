@@ -146,8 +146,12 @@ pub const InterruptStatus = packed struct(u2) {
         return @bitCast(smallInt);
     }
 
-    pub fn ack(status: InterruptStatus) void {
+    pub fn ackStatus(status: InterruptStatus) void {
         ack_register.write(@as(u32, @bitCast(status)));
+    }
+
+    pub fn ack() void {
+        read().ackStatus();
     }
 };
 
