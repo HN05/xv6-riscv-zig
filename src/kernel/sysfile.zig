@@ -360,7 +360,7 @@ pub fn open() !usize {
     errdefer c.iput(inode); // only iput on error
     defer c.iunlock(inode);
 
-    if (inode.*.type == c.T_DEVICE and (inode.*.major < 0 or inode.*.major >= param.NDEV)) return OpenErrors.InvalidDeviceMajor;
+    if (inode.*.type == c.T_DEVICE and (inode.*.major < 0 or inode.*.major >= param.device_number)) return OpenErrors.InvalidDeviceMajor;
 
     const file = c.filealloc() orelse return OpenErrors.FailedAllocFile;
     errdefer c.fileclose(file);
@@ -414,12 +414,12 @@ pub fn sys_mknod() u64 {
     const major = sysargs.getInt(.a1);
     const minor = sysargs.getInt(.a2);
 
-    if (major >= param.NDEV) {
+    if (major >= param.device_number) {
         log.print("major out of range", .{});
         return sysargs.errorVal;
     }
 
-    const Minor = @FieldType(DeviceID, "minor");
+    const Minor = @FieldType(Device.ID, "minor");
     if (minor >= std.math.maxInt(Minor)) {
         log.print("minor out of range", .{});
         return sysargs.errorVal;

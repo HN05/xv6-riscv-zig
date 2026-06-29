@@ -15,6 +15,7 @@ const scheduler = @import("scheduler.zig");
 const File = @import("file.zig");
 const Inode = @import("inode.zig");
 const trap = @import("trap.zig");
+const fs = @import("filesystem.zig");
 
 pub var processTable: [param.NPROC]Process = blk: {
     var table: [param.NPROC]Process = undefined;
@@ -314,7 +315,7 @@ fn forkReturn() void {
         // regular process (e.g., because it calls sleep), and thus cannot
         // be run from main().
         first_fork = false;
-        c.fsinit(ROOTDEV);
+        fs.init(.root_fs_device);
     }
     trap.usertrapret();
 }

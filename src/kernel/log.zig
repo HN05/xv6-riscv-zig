@@ -34,7 +34,7 @@ const Header = struct {
     length: u32,
     block: [common.param.log_size]u32,
 
-    pub fn copyFrom(destination: *Header, source: *Header) void {
+    pub fn copyFrom(destination: *Header, source: *const Header) void {
         destination.length = source.length;
         for (0..destination.length) |index| {
             destination.block[index] = source.block[index];
@@ -56,7 +56,7 @@ const Log = struct {
     header: Header,
 };
 
-const log: Log = undefined;
+var log: Log = undefined;
 
 pub fn init(device: Device.ID, superblock: fs.SuperBlock) void {
     log = .{

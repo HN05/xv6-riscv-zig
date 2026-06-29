@@ -24,7 +24,7 @@ const NINODES = 200;
 
 const nbitmap: i32 = param.FSSIZE / (fs.BSIZE * 8) + 1;
 const ninodeblocks: i32 = NINODES / fs.IPB + 1;
-const nlog: i32 = param.LOGSIZE;
+const nlog: i32 = param.log_size;
 
 const zeroes = [_]u8{0} ** fs.BSIZE;
 var sb: fs.SuperBlock = undefined;
