@@ -228,8 +228,8 @@ fn ialloc(io: std.Io, file_type: stat.FileType) !u32 {
     var din: fs.Dinode = undefined;
     @memset(mem.asBytes(&din), 0);
     var din_bytes = mem.toBytes(@intFromEnum(file_type));
-    din.type = mem.readVarInt(i16, &din_bytes, .little);
-    din.nlink = mem.readVarInt(i16, &[_]u8{1}, .little);
+    din.type = mem.readVarInt(u16, &din_bytes, .little);
+    din.nlink = mem.readVarInt(u16, &[_]u8{1}, .little);
     din.size = mem.readVarInt(u32, &[_]u8{0}, .little);
 
     try winode(io, inum, &din);

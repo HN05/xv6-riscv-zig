@@ -36,10 +36,10 @@ pub const MAXFILE = (NDIRECT + NINDIRECT);
 
 // On-disk inode structure
 pub const Dinode = extern struct {
-    type: i16, // File type
-    major: i16, // Major device number (T_DEVICE only)
-    minor: i16, // Minor device number (T_DEVICE only)
-    nlink: i16, // Number of links to inode in file system
+    type: u16, // File type
+    major: u16, // Major device number (T_DEVICE only)
+    minor: u16, // Minor device number (T_DEVICE only)
+    nlink: u16, // Number of links to inode in file system
     size: u32, // Size of file (bytes)
     addrs: [NDIRECT + 1]u32, // Data block addresses
 };

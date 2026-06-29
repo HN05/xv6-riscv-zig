@@ -2,8 +2,9 @@ const Device = @import("device.zig");
 const Buffer = @import("buffer.zig");
 const log = @import("log.zig");
 const std = @import("std");
+const Inode = @import("inode.zig");
 
-pub const FileType = enum(u2) { directory = 1, file = 2, device = 3 };
+pub const FileType = enum(u16) { free = 0, directory = 1, file = 2, device = 3 };
 
 pub const FileStatus = extern struct {
     device: u32,
@@ -34,25 +35,42 @@ pub const SuperBlock = struct {
     bmapstart: u32, // Block number of first free map block
 };
 
-pub const direct_inode_pointer_num = 12;
-pub const indirect_inode_pointer_num = block_size / 32;
-pub const max_block_file_size = direct_inode_pointer_num + indirect_inode_pointer_num;
+const BlockBitmap = struct {
+    bytes: []u8,
 
-// On-disk inode structure
-pub const DiskInode = struct {
-    kind: u8, // File type
-    device: Device.ID,
-    link_number: u8, // Number of links to inode in file system
-    size: u32, // Size of file (bytes)
-    data_addresses: [direct_inode_pointer_num + 1]u32, // Data block addresses
+    pub fn isUsed(self: BlockBitmap, bit_index: usize) bool {
+        const byte_index = bit_index / 8;
+        const bit_offset: u3 = bit_index % 8;
+        const mask: u8 = @as(u8, 1) << bit_offset;
+
+        return (self.bytes[byte_index] & mask) != 0;
+    }
+
+    pub fn markUsed(self: BlockBitmap, bit_index: usize) void {
+        const byte_index = bit_index / 8;
+        const bit_offset: u3 = bit_index % 8;
+        const mask: u8 = @as(u8, 1) << bit_offset;
+
+        self.bytes[byte_index] |= mask;
+    }
+
+    pub fn markFree(self: BlockBitmap, bit_index: usize) void {
+        if (isUsed(self, bit_index)) @panic("trying to free used block");
+        const byte_index = bit_index / 8;
+        const bit_offset: u3 = bit_index % 8;
+        const mask: u8 = @as(u8, 1) << bit_offset;
+
+        self.bytes[byte_index] &= ~mask;
+    }
+
+    pub fn findFree(self: BlockBitmap, max_bits: u32) ?usize {
+        var bit_index: usize = 0;
+        while (bit_index < max_bits) : (bit_index += 1) {
+            if (!self.isUsed(bit_index)) return bit_index;
+        }
+        return null;
+    }
 };
-
-pub const inodes_per_block = block_size / @sizeOf(DiskInode);
-
-// Block containing inode i
-fn getInodeBlock(inode_number: u32) u32 {
-    return inode_number / inodes_per_block + superBlock.inodestart;
-}
 
 // Bitmap bits per block
 pub const bitmap_bits_per_block = block_size * 8;
@@ -65,7 +83,7 @@ fn getFreeMapBlock(block: u32) u32 {
 // Directory is a file containing a sequence of dirent structures.
 
 pub const DirectoryEntry = extern struct {
-    i_num: u8,
+    i_num: u16,
     name: [max_name_length]u8,
 
     pub const max_name_length = 14;
@@ -84,14 +102,17 @@ pub const DirectoryEntry = extern struct {
 
 // there should be one superblock per disk device, but we run with
 // only one device
-var superBlock: SuperBlock = undefined;
+pub var superBlock: SuperBlock = undefined;
 
 // Read the super block.
 fn readSuperBlock(device: Device.ID, superBlockDestination: *SuperBlock) void {
     const buffer = Buffer.read(device, 1);
     defer buffer.release();
 
-    superBlockDestination.* = std.mem.bytesAsValue(SuperBlock, buffer.data[0..@sizeOf(SuperBlock)]);
+    @memmove(
+        std.mem.asBytes(superBlockDestination.*),
+        buffer.data[0..@sizeOf(SuperBlock)],
+    );
 }
 
 // Init fs
@@ -107,404 +128,57 @@ fn zeroBlock(device: Device.ID, block_number: u32) void {
     defer buffer.release();
 
     @memset(&buffer.data, 0);
-    log.logWrite(buffer);
+    log.write(buffer);
 }
 
 // Blocks.
 
 // Allocate a zeroed disk block.
 fn blockAllocate(device: Device.ID) !u32 {
+    var block_number = 0;
+    while (block_number < superBlock.size) : (block_number += bitmap_bits_per_block) {
+        var allocated_block: ?u32 = null;
+        {
+            const buffer = Buffer.read(device, getFreeMapBlock(block_number));
+            defer buffer.release();
+
+            const bitmap = BlockBitmap{
+                .bytes = buffer.data[0..],
+            };
+
+            const remaining_blocks = superBlock.size - block_number;
+            const max_blocks = @min(bitmap_bits_per_block, remaining_blocks);
+
+            if (bitmap.findFree(max_blocks)) |block_index| {
+                bitmap.markUsed(block_index);
+                log.write(buffer);
+
+                allocated_block = block_number + block_index;
+            }
+        }
+        if (allocated_block) |block| {
+            zeroBlock(device, block);
+            return block;
+        }
+    }
+    return error.OutOfBlocks;
 }
 
-// static uint
-// balloc(uint dev)
-// {
-//   int b, bi, m;
-//   struct buf *bp;
-//
-//   bp = 0;
-//   for(b = 0; b < sb.size; b += BPB){
-//     bp = bread(dev, BBLOCK(b, sb));
-//     for(bi = 0; bi < BPB && b + bi < sb.size; bi++){
-//       m = 1 << (bi % 8);
-//       if((bp->data[bi/8] & m) == 0){  // Is block free?
-//         bp->data[bi/8] |= m;  // Mark block in use.
-//         log_write(bp);
-//         brelse(bp);
-//         bzero(dev, b + bi);
-//         return b + bi;
-//       }
-//     }
-//     brelse(bp);
-//   }
-//   printf("balloc: out of blocks\n");
-//   return 0;
-// }
-//
-// // Free a disk block.
-// static void
-// bfree(int dev, uint b)
-// {
-//   struct buf *bp;
-//   int bi, m;
-//
-//   bp = bread(dev, BBLOCK(b, sb));
-//   bi = b % BPB;
-//   m = 1 << (bi % 8);
-//   if((bp->data[bi/8] & m) == 0)
-//     panic("freeing free block");
-//   bp->data[bi/8] &= ~m;
-//   log_write(bp);
-//   brelse(bp);
-// }
-//
-// // Inodes.
-// //
-// // An inode describes a single unnamed file.
-// // The inode disk structure holds metadata: the file's type,
-// // its size, the number of links referring to it, and the
-// // list of blocks holding the file's content.
-// //
-// // The inodes are laid out sequentially on disk at block
-// // sb.inodestart. Each inode has a number, indicating its
-// // position on the disk.
-// //
-// // The kernel keeps a table of in-use inodes in memory
-// // to provide a place for synchronizing access
-// // to inodes used by multiple processes. The in-memory
-// // inodes include book-keeping information that is
-// // not stored on disk: ip->ref and ip->valid.
-// //
-// // An inode and its in-memory representation go through a
-// // sequence of states before they can be used by the
-// // rest of the file system code.
-// //
-// // * Allocation: an inode is allocated if its type (on disk)
-// //   is non-zero. ialloc() allocates, and iput() frees if
-// //   the reference and link counts have fallen to zero.
-// //
-// // * Referencing in table: an entry in the inode table
-// //   is free if ip->ref is zero. Otherwise ip->ref tracks
-// //   the number of in-memory pointers to the entry (open
-// //   files and current directories). iget() finds or
-// //   creates a table entry and increments its ref; iput()
-// //   decrements ref.
-// //
-// // * Valid: the information (type, size, &c) in an inode
-// //   table entry is only correct when ip->valid is 1.
-// //   ilock() reads the inode from
-// //   the disk and sets ip->valid, while iput() clears
-// //   ip->valid if ip->ref has fallen to zero.
-// //
-// // * Locked: file system code may only examine and modify
-// //   the information in an inode and its content if it
-// //   has first locked the inode.
-// //
-// // Thus a typical sequence is:
-// //   ip = iget(dev, inum)
-// //   ilock(ip)
-// //   ... examine and modify ip->xxx ...
-// //   iunlock(ip)
-// //   iput(ip)
-// //
-// // ilock() is separate from iget() so that system calls can
-// // get a long-term reference to an inode (as for an open file)
-// // and only lock it for short periods (e.g., in read()).
-// // The separation also helps avoid deadlock and races during
-// // pathname lookup. iget() increments ip->ref so that the inode
-// // stays in the table and pointers to it remain valid.
-// //
-// // Many internal file system functions expect the caller to
-// // have locked the inodes involved; this lets callers create
-// // multi-step atomic operations.
-// //
-// // The itable.lock spin-lock protects the allocation of itable
-// // entries. Since ip->ref indicates whether an entry is free,
-// // and ip->dev and ip->inum indicate which i-node an entry
-// // holds, one must hold itable.lock while using any of those fields.
-// //
-// // An ip->lock sleep-lock protects all ip-> fields other than ref,
-// // dev, and inum.  One must hold ip->lock in order to
-// // read or write that inode's ip->valid, ip->size, ip->type, &c.
-//
-// struct {
-//   struct spinlock lock;
-//   struct inode inode[NINODE];
-// } itable;
-//
-// void
-// iinit()
-// {
-//   int i = 0;
-//
-//   initlock(&itable.lock, "itable");
-//   for(i = 0; i < NINODE; i++) {
-//     initsleeplock(&itable.inode[i].lock, "inode");
-//   }
-// }
-//
-// static struct inode* iget(uint dev, uint inum);
-//
-// // Allocate an inode on device dev.
-// // Mark it as allocated by  giving it type type.
-// // Returns an unlocked but allocated and referenced inode,
-// // or NULL if there is no free inode.
-// struct inode*
-// ialloc(uint dev, short type)
-// {
-//   int inum;
-//   struct buf *bp;
-//   struct dinode *dip;
-//
-//   for(inum = 1; inum < sb.ninodes; inum++){
-//     bp = bread(dev, IBLOCK(inum, sb));
-//     dip = (struct dinode*)bp->data + inum%IPB;
-//     if(dip->type == 0){  // a free inode
-//       memset(dip, 0, sizeof(*dip));
-//       dip->type = type;
-//       log_write(bp);   // mark it allocated on the disk
-//       brelse(bp);
-//       return iget(dev, inum);
-//     }
-//     brelse(bp);
-//   }
-//   printf("ialloc: no inodes\n");
-//   return 0;
-// }
-//
-// // Copy a modified in-memory inode to disk.
-// // Must be called after every change to an ip->xxx field
-// // that lives on disk.
-// // Caller must hold ip->lock.
-// void
-// iupdate(struct inode *ip)
-// {
-//   struct buf *bp;
-//   struct dinode *dip;
-//
-//   bp = bread(ip->dev, IBLOCK(ip->inum, sb));
-//   dip = (struct dinode*)bp->data + ip->inum%IPB;
-//   dip->type = ip->type;
-//   dip->major = ip->major;
-//   dip->minor = ip->minor;
-//   dip->nlink = ip->nlink;
-//   dip->size = ip->size;
-//   memmove(dip->addrs, ip->addrs, sizeof(ip->addrs));
-//   log_write(bp);
-//   brelse(bp);
-// }
-//
-// // Find the inode with number inum on device dev
-// // and return the in-memory copy. Does not lock
-// // the inode and does not read it from disk.
-// static struct inode*
-// iget(uint dev, uint inum)
-// {
-//   struct inode *ip, *empty;
-//
-//   acquire(&itable.lock);
-//
-//   // Is the inode already in the table?
-//   empty = 0;
-//   for(ip = &itable.inode[0]; ip < &itable.inode[NINODE]; ip++){
-//     if(ip->ref > 0 && ip->dev == dev && ip->inum == inum){
-//       ip->ref++;
-//       release(&itable.lock);
-//       return ip;
-//     }
-//     if(empty == 0 && ip->ref == 0)    // Remember empty slot.
-//       empty = ip;
-//   }
-//
-//   // Recycle an inode entry.
-//   if(empty == 0)
-//     panic("iget: no inodes");
-//
-//   ip = empty;
-//   ip->dev = dev;
-//   ip->inum = inum;
-//   ip->ref = 1;
-//   ip->valid = 0;
-//   release(&itable.lock);
-//
-//   return ip;
-// }
-//
-// // Increment reference count for ip.
-// // Returns ip to enable ip = idup(ip1) idiom.
-// struct inode*
-// idup(struct inode *ip)
-// {
-//   acquire(&itable.lock);
-//   ip->ref++;
-//   release(&itable.lock);
-//   return ip;
-// }
-//
-// // Lock the given inode.
-// // Reads the inode from disk if necessary.
-// void
-// ilock(struct inode *ip)
-// {
-//   struct buf *bp;
-//   struct dinode *dip;
-//
-//   if(ip == 0 || ip->ref < 1)
-//     panic("ilock");
-//
-//   acquiresleep(&ip->lock);
-//
-//   if(ip->valid == 0){
-//     bp = bread(ip->dev, IBLOCK(ip->inum, sb));
-//     dip = (struct dinode*)bp->data + ip->inum%IPB;
-//     ip->type = dip->type;
-//     ip->major = dip->major;
-//     ip->minor = dip->minor;
-//     ip->nlink = dip->nlink;
-//     ip->size = dip->size;
-//     memmove(ip->addrs, dip->addrs, sizeof(ip->addrs));
-//     brelse(bp);
-//     ip->valid = 1;
-//     if(ip->type == 0)
-//       panic("ilock: no type");
-//   }
-// }
-//
-// // Unlock the given inode.
-// void
-// iunlock(struct inode *ip)
-// {
-//   if(ip == 0 || !holdingsleep(&ip->lock) || ip->ref < 1)
-//     panic("iunlock");
-//
-//   releasesleep(&ip->lock);
-// }
-//
-// // Drop a reference to an in-memory inode.
-// // If that was the last reference, the inode table entry can
-// // be recycled.
-// // If that was the last reference and the inode has no links
-// // to it, free the inode (and its content) on disk.
-// // All calls to iput() must be inside a transaction in
-// // case it has to free the inode.
-// void
-// iput(struct inode *ip)
-// {
-//   acquire(&itable.lock);
-//
-//   if(ip->ref == 1 && ip->valid && ip->nlink == 0){
-//     // inode has no links and no other references: truncate and free.
-//
-//     // ip->ref == 1 means no other process can have ip locked,
-//     // so this acquiresleep() won't block (or deadlock).
-//     acquiresleep(&ip->lock);
-//
-//     release(&itable.lock);
-//
-//     itrunc(ip);
-//     ip->type = 0;
-//     iupdate(ip);
-//     ip->valid = 0;
-//
-//     releasesleep(&ip->lock);
-//
-//     acquire(&itable.lock);
-//   }
-//
-//   ip->ref--;
-//   release(&itable.lock);
-// }
-//
-// // Common idiom: unlock, then put.
-// void
-// iunlockput(struct inode *ip)
-// {
-//   iunlock(ip);
-//   iput(ip);
-// }
-//
-// // Inode content
-// //
-// // The content (data) associated with each inode is stored
-// // in blocks on the disk. The first NDIRECT block numbers
-// // are listed in ip->addrs[].  The next NINDIRECT blocks are
-// // listed in block ip->addrs[NDIRECT].
-//
-// // Return the disk block address of the nth block in inode ip.
-// // If there is no such block, bmap allocates one.
-// // returns 0 if out of disk space.
-// static uint
-// bmap(struct inode *ip, uint bn)
-// {
-//   uint addr, *a;
-//   struct buf *bp;
-//
-//   if(bn < NDIRECT){
-//     if((addr = ip->addrs[bn]) == 0){
-//       addr = balloc(ip->dev);
-//       if(addr == 0)
-//         return 0;
-//       ip->addrs[bn] = addr;
-//     }
-//     return addr;
-//   }
-//   bn -= NDIRECT;
-//
-//   if(bn < NINDIRECT){
-//     // Load indirect block, allocating if necessary.
-//     if((addr = ip->addrs[NDIRECT]) == 0){
-//       addr = balloc(ip->dev);
-//       if(addr == 0)
-//         return 0;
-//       ip->addrs[NDIRECT] = addr;
-//     }
-//     bp = bread(ip->dev, addr);
-//     a = (uint*)bp->data;
-//     if((addr = a[bn]) == 0){
-//       addr = balloc(ip->dev);
-//       if(addr){
-//         a[bn] = addr;
-//         log_write(bp);
-//       }
-//     }
-//     brelse(bp);
-//     return addr;
-//   }
-//
-//   panic("bmap: out of range");
-// }
-//
-// // Truncate inode (discard contents).
-// // Caller must hold ip->lock.
-// void
-// itrunc(struct inode *ip)
-// {
-//   int i, j;
-//   struct buf *bp;
-//   uint *a;
-//
-//   for(i = 0; i < NDIRECT; i++){
-//     if(ip->addrs[i]){
-//       bfree(ip->dev, ip->addrs[i]);
-//       ip->addrs[i] = 0;
-//     }
-//   }
-//
-//   if(ip->addrs[NDIRECT]){
-//     bp = bread(ip->dev, ip->addrs[NDIRECT]);
-//     a = (uint*)bp->data;
-//     for(j = 0; j < NINDIRECT; j++){
-//       if(a[j])
-//         bfree(ip->dev, a[j]);
-//     }
-//     brelse(bp);
-//     bfree(ip->dev, ip->addrs[NDIRECT]);
-//     ip->addrs[NDIRECT] = 0;
-//   }
-//
-//   ip->size = 0;
-//   iupdate(ip);
-// }
+// Free a disk block.
+fn blockFree(device: Device.ID, block_number: u32) void {
+    const buffer = Buffer.read(device, getFreeMapBlock(block_number));
+    defer buffer.release();
+
+    const bitmap = BlockBitmap{
+        .bytes = buffer.data[0..],
+    };
+
+    const block_offset = block_number % bitmap_bits_per_block;
+
+    bitmap.markFree(block_offset);
+    log.write(buffer);
+}
+
 //
 // // Copy stat information from inode.
 // // Caller must hold ip->lock.

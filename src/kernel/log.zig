@@ -201,7 +201,7 @@ fn commit() void {
 //   modify bp->data[]
 //   log_write(bp)
 //   brelse(bp)
-pub fn logWrite(buffer: *Buffer) void {
+pub fn write(buffer: *Buffer) void {
     log.lock.acquire();
     defer log.lock.release();
 
