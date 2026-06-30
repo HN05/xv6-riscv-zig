@@ -17,11 +17,11 @@ pub const DirectoryEntry = extern struct {
 
     pub const max_name_length = max_entry_name_length;
 
-    pub fn nameSlice(entry: *const DirectoryEntry) []u8 {
+    pub fn nameSlice(entry: *const DirectoryEntry) []const u8 {
         return entry.name_buffer[0..entry.name_length];
     }
 
-    pub fn matchesName(entry: *const DirectoryEntry, name: []u8) bool {
+    pub fn matchesName(entry: *const DirectoryEntry, name: []const u8) bool {
         return std.mem.eql(u8, name, entry.nameSlice());
     }
 };

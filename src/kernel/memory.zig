@@ -398,7 +398,7 @@ pub fn eitherCopyOut(comptime address_kind: ad.AddressKind, destination: usize, 
 }
 
 // Copy from either a user address, or kernel address,
-pub fn eitherCopyIn(comptime address_kind: ad.AddressKind, source: usize, destination: []const u8) !void {
+pub fn eitherCopyIn(comptime address_kind: ad.AddressKind, source: usize, destination: []u8) !void {
     const process = try Process.getCurrentThrows();
     const source_address = ad.Address(address_kind){.value = source};
 

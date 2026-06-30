@@ -173,7 +173,7 @@ pub fn update(inode: *Inode) void {
 // Find the inode with number inum on device dev
 // and return the in-memory copy. Does not lock
 // the inode and does not read it from disk.
-fn get(device: Device.ID, inode_number: u32) *Inode {
+pub fn get(device: Device.ID, inode_number: u32) *Inode {
     inode_table.lock.acquire();
     defer inode_table.lock.release();
 
@@ -389,12 +389,12 @@ pub fn read(inode: *Inode, comptime address_kind: ad.AddressKind, destination: u
 // Write data to inode.
 // Caller must hold ip->lock.
 // Returns the number of bytes successfully written.
-pub fn write(inode: *Inode, address_kind: ad.AddressKind, source: usize, offset: u32, count: u32) !u32 {
+pub fn write(inode: *Inode, comptime address_kind: ad.AddressKind, source: usize, offset: u32, count: u32) !u32 {
     if (offset > inode.disk_inode.size) return error.OutOfInodeRange;
     if (@addWithOverflow(offset, count)[1] == 1) return error.OffsetOverflows;
     if (offset + count > fs.block_size * max_file_block_count) return error.FileOverflow;
 
-    var bytes_written = 0;
+    var bytes_written: u32 = 0;
     var current_offset = offset;
     var current_source = source;
 
