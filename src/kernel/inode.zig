@@ -83,6 +83,7 @@ const Directory = @import("directory.zig");
 const Inode = @This();
 
 pub const root_inode_number = 1; // root i-number
+pub const max_path_size = common.param.MAXPATH;
 
 pub const direct_pointer_count = 12;
 pub const indirect_pointer_block_index = direct_pointer_count;

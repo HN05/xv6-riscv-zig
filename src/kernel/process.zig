@@ -1,7 +1,7 @@
 const common = @import("common");
 const param = common.param;
 const Context = common.riscv.Context;
-const lk = @import("spinlock.zig");
+const SpinLock = @import("spinlock.zig");
 const ad = @import("address.zig");
 const ml = @import("memlayout.zig");
 const alloc = @import("kalloc.zig");
@@ -16,6 +16,7 @@ const File = @import("file.zig");
 const Inode = @import("inode.zig");
 const trap = @import("trap.zig");
 const fs = @import("filesystem.zig");
+const log = @import("log.zig");
 
 pub var processTable: [param.NPROC]Process = blk: {
     var table: [param.NPROC]Process = undefined;
@@ -32,7 +33,7 @@ pub var nextProcessId: std.atomic.Value(u32) = .init(1);
 // parents are not lost. helps obey the
 // memory model when using p->parent.
 // must be acquired before any p->lock.
-pub var waitLock: lk.SpinLock = .{ .name = "wait_lock" };
+pub var waitLock: SpinLock = .{ .name = "wait_lock" };
 
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
@@ -116,7 +117,7 @@ pub const ProcessState = enum {
 
 const Process = @This();
 // Per-process state
-lock: lk.SpinLock = .{ .name = "proc" },
+lock: SpinLock = .{ .name = "proc" },
 
 // p->lock must be held when using these:
 state_unsafe: ProcessState = .unused,
@@ -143,7 +144,7 @@ ownedRingbufsCount: usize = 0, // Count of ringbufs owned by this process
 allocatedTrapFrame: bool = false,
 allocatedPageTable: bool = false,
 
-pub fn nameSlice(process: *Process) []const u8 {
+pub fn nameSlice(process: *const Process) []const u8 {
     return process.nameBuffer[0..process.nameLength];
 }
 
@@ -298,7 +299,7 @@ pub fn initFirstUser() void {
     @memcpy(initialProcess.nameBuffer[0..name.len], name);
     initialProcess.nameLength = name.len;
 
-    initialProcess.currentWorkingDirectory = c.namei(@constCast("/"));
+    initialProcess.currentWorkingDirectory = .resolvePath("/");
     initialProcess.state_unsafe = .runnable;
 }
 
@@ -357,10 +358,10 @@ pub fn fork() !u32 {
         // increment reference counts on open file descriptors.
         for (parent_process.openFiles, 0..) |potential_file, index| {
             if (potential_file) |open_file| {
-                child_process.openFiles[index] = c.filedup(open_file);
+                child_process.openFiles[index] = open_file.duplicate();
             }
         }
-        child_process.currentWorkingDirectory = c.idup(parent_process.currentWorkingDirectory);
+        child_process.currentWorkingDirectory = parent_process.currentWorkingDirectory.duplicate();
 
         child_process.nameLength = parent_process.nameLength;
         child_process.nameBuffer = @memcpy(&child_process.nameBuffer, parent_process.nameSlice());
@@ -409,17 +410,17 @@ pub fn exit(status: i32) void {
     // Close all open files.
     for (current_process.openFiles, 0..) |potential_file, index| {
         if (potential_file) |open_file| {
-            c.fileclose(open_file);
+            open_file.close();
             current_process.openFiles[index] = null;
         }
     }
 
     // put directory
     {
-        c.begin_op();
-        defer c.end_op();
+        log.beginOperation();
+        defer log.endOperation();
 
-        c.iput(current_process.currentWorkingDirectory);
+        current_process.currentWorkingDirectory.put();
     }
 
     {

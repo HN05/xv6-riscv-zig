@@ -69,6 +69,14 @@ pub const Features = packed struct(u32) {
     pub const device_register = Register{ .offset = 0x010, .access = .ro };
     pub const driver_register = Register{ .offset = 0x020, .access = .wo };
 
+    pub fn write(features: Features) void {
+        driver_register.write(@bitCast(features));
+    }
+
+    pub fn read() Features {
+        return @bitCast(device_register.read());
+    }
+
     pub const DeviceSpecific = packed union {
         raw: u24,
         block: Block,
@@ -147,7 +155,8 @@ pub const InterruptStatus = packed struct(u2) {
     }
 
     pub fn ackStatus(status: InterruptStatus) void {
-        ack_register.write(@as(u32, @bitCast(status)));
+        const bits: u2 = @bitCast(status);
+        ack_register.write(bits);
     }
 
     pub fn ack() void {
@@ -173,7 +182,8 @@ pub const Status = packed struct(u8) {
     }
 
     pub fn write(status: Status) void {
-        register.write(@bitCast(status));
+        const bits: u8 = @bitCast(status);
+        register.write(bits);
     }
 };
 

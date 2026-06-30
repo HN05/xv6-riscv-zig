@@ -6,6 +6,8 @@ const ad = @import("address.zig");
 const std = @import("std");
 const Process = @import("process.zig");
 const Inode = @import("inode.zig");
+const log = @import("log.zig");
+const fs = @import("filesystem.zig");
 
 // Load a program segment into pagetable at virtual address va.
 // va must be page-aligned
@@ -19,7 +21,7 @@ fn loadSegment(pageTable: ad.PageTablePtr, virtualAddress: ad.UserAddress, inode
         // check if on last page
         const readCount = if (size - currentPage < ad.page_size) size - currentPage else ad.page_size;
 
-        const readResult = c.readi(inode, 0, physicalAddress.toInt(), @intCast(offset + currentPage), @intCast(readCount));
+        const readResult = try inode.read(.kernel, physicalAddress.toInt(), offset + currentPage, readCount);
 
         if (readResult != readCount) return error.CouldNotRead;
     }
@@ -39,23 +41,17 @@ pub fn exec(path: []const u8, argv: [][]const u8) !usize {
 
     // load program into memory
     {
-        c.begin_op();
-        defer c.end_op();
+        log.beginOperation();
+        defer log.endOperation();
 
-        {
-            //  TODO: remove
-            var nullTermPath: [c.MAXPATH]u8 = undefined;
-            @memcpy(&nullTermPath, path);
-            nullTermPath[path.len] = 0;
-            inode = c.namei(&nullTermPath) orelse return error.CouldResolvePath;
-        }
-        c.ilock(inode);
-        defer c.iunlockput(inode);
+        inode = .resolvePath(path) orelse return error.CouldNotResolvePath;
+        inode.lock();
+        defer inode.releasePut();
 
         // Check ELF header
         var elfHeader: elf.ElfHeader = undefined;
         {
-            const readBytes = c.readi(inode, 0, @intFromPtr(&elfHeader), 0, @sizeOf(elf.ElfHeader));
+            const readBytes = try inode.read(.kernel, @intFromPtr(&elfHeader), 0, @sizeOf(elf.ElfHeader));
             if (readBytes != @sizeOf(elf.ElfHeader)) return error.CouldNotReadElfHeader;
             if (!elfHeader.elfIdentifier.isValid()) return error.CorruptedElfHeader;
         }
@@ -66,7 +62,7 @@ pub fn exec(path: []const u8, argv: [][]const u8) !usize {
         const programHeaderSize = @sizeOf(elf.ProgramHeader);
         for (0..elfHeader.programHeaderEntryNum) |programHeaderEntryIndex| {
             const offset = elfHeader.programHeaderOffset + programHeaderEntryIndex * programHeaderSize;
-            const readBytes = c.readi(inode, 0, @intFromPtr(&programHeader), @intCast(offset), programHeaderSize);
+            const readBytes = inode.read(.kernel, @intFromPtr(&programHeader), @intCast(offset), programHeaderSize);
             if (readBytes != programHeaderSize) return error.CouldNotReadProgramHeader;
 
             if (programHeader.type != .load) continue;
@@ -96,7 +92,7 @@ pub fn exec(path: []const u8, argv: [][]const u8) !usize {
     var stackPointer = programSize;
     const stackBase = stackPointer - ad.page_size;
 
-    var userStack: [c.MAXARG + 1]usize = undefined;
+    var userStack: [param.MAXARG + 1]usize = undefined;
 
     // Push argument strings, prepare rest of stack in ustack.
     for (argv, 0..) |arg, index| {

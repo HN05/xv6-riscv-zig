@@ -171,7 +171,7 @@ fn allocDescriptorsSlice(descriptor_destination: []u16) !void {
 }
 
 inline fn fullMemoryBarrier() void {
-    asm volatile ("fence rw, rw" ::: "memory");
+    asm volatile ("fence rw, rw" ::: .{ .memory = true });
 }
 
 pub fn read(buffer: *Buffer) void {

@@ -9,6 +9,7 @@ const MagicBuf = com.ringbuf.MagicBuf;
 const Rb = com.ringbuf;
 const mem = @import("memory.zig");
 const Process = @import("process.zig");
+const fslog = @import("log.zig");
 
 // we expose these in common because they will be usIed by the user lib
 const RINGBUF_SIZE = com.ringbuf.RINGBUF_SIZE;
@@ -265,8 +266,8 @@ fn ringbuf(name: []const u8, op: Rb.Op, addr_va: *?*align(page_size) anyopaque) 
 
 const sysargs = @import("sysargs.zig");
 pub fn syscall() u64 {
-    c.begin_op();
-    defer c.end_op();
+    fslog.beginOperation();
+    defer fslog.endOperation();
 
     var buffer: [MAX_NAME_LEN]u8 = undefined;
 

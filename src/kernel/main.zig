@@ -17,7 +17,7 @@ const log = std.log.scoped(.kmain);
 var started = std.atomic.Value(bool).init(false);
 
 pub fn kmain() void {
-    if (Cpu.getCurrent() == 0) {
+    if (Cpu.getCurrentId() == 0) {
         console.init();
         log.info("xv6 kernel is booting", .{});
         Kalloc.kinit(); // set up allocator (zig)
@@ -27,15 +27,13 @@ pub fn kmain() void {
         plic.init(); // set up interrupt controller
         plic.initHart(); // ask PLIC for device interrupts
         Buffer.cache.init_array(); // buffer cache
-        c.iinit(); // inode table
-        c.fileinit(); // file table
         virtio.disk_driver.init(); // emulated hard disk
         Process.initFirstUser(); // first user process
         started.store(true, .seq_cst);
     } else {
         while (!started.load(.seq_cst)) {}
 
-        log.info("hart {d} starting", .{c.cpuid()});
+        log.info("hart {d} starting", .{Cpu.getCurrentId()});
         memory.kernelMemoryHartInit(); // turn on paging
         trap.initHart(); // install kernel trap vector
         plic.initHart(); // ask PLIC for device interrupts

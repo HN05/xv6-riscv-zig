@@ -107,14 +107,15 @@ pub fn sleep(channel: *anyopaque, spinlock: *lk.SpinLock) void {
 // Must be called without any p->lock.
 pub fn wakeup(channel: *anyopaque) void {
     const current_process = Process.getCurrent();
-    for (Process.processTable) |process| {
-        if (process != current_process) {
-            process.lock.acquire();
-            defer process.lock.release();
+    for (&Process.processTable) |*process| {
+        if (current_process) |cur_proc| {
+            if (cur_proc == process) continue;
+        }
+        process.lock.acquire();
+        defer process.lock.release();
 
-            if (process.state_unsafe == .sleeping and process.sleeping_channel_unsafe == channel) {
-                process.state_unsafe == .runnable;
-            }
+        if (process.state_unsafe == .sleeping and process.sleeping_channel_unsafe == channel) {
+            process.state_unsafe = .runnable;
         }
     }
 }

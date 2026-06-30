@@ -36,7 +36,7 @@ pub fn release(self: *SpinLock) void {
 }
 
 pub fn isHolding(self: *SpinLock) bool {
-    return (self.isLocked.raw and self.cpu == .getCurrent());
+    return (self.isLocked.raw and self.cpu == Cpu.getCurrent());
 }
 
 // Atomically release lock and sleep on chan.
