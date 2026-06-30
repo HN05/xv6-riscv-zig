@@ -19,6 +19,7 @@ const common = @import("common");
 const Device = @import("device.zig");
 const virtio = @import("virtio.zig");
 const fs = @import("filesystem.zig");
+const std = @import("std");
 
 const Buffer = @This();
 
@@ -31,6 +32,13 @@ reference_count: u32 = 0,
 previous: *Buffer = undefined, // LRU cache list
 next: *Buffer = undefined,
 data: [fs.BSIZE]u8 = undefined,
+
+pub fn castData(buffer: *Buffer, comptime T: type) *T {
+    return std.mem.bytesAsValue(
+        T,
+        buffer.data[0..@sizeOf(T)],
+    );
+}
 
 // cache
 const Cache = struct {

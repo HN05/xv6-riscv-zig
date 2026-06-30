@@ -7,7 +7,7 @@ const Inode = @import("inode.zig");
 pub const FileType = enum(u16) { free = 0, directory = 1, file = 2, device = 3 };
 
 pub const FileStatus = extern struct {
-    device: u32,
+    device: Device.ID,
     inode_number: u32,
     type: FileType,
     link_count: u16,
@@ -134,7 +134,7 @@ fn zeroBlock(device: Device.ID, block_number: u32) void {
 // Blocks.
 
 // Allocate a zeroed disk block.
-fn blockAllocate(device: Device.ID) !u32 {
+pub fn blockAllocate(device: Device.ID) !u32 {
     var block_number = 0;
     while (block_number < superBlock.size) : (block_number += bitmap_bits_per_block) {
         var allocated_block: ?u32 = null;
@@ -165,7 +165,7 @@ fn blockAllocate(device: Device.ID) !u32 {
 }
 
 // Free a disk block.
-fn blockFree(device: Device.ID, block_number: u32) void {
+pub fn blockFree(device: Device.ID, block_number: u32) void {
     const buffer = Buffer.read(device, getFreeMapBlock(block_number));
     defer buffer.release();
 
@@ -179,93 +179,6 @@ fn blockFree(device: Device.ID, block_number: u32) void {
     log.write(buffer);
 }
 
-//
-// // Copy stat information from inode.
-// // Caller must hold ip->lock.
-// void
-// stati(struct inode *ip, struct stat *st)
-// {
-//   st->dev = ip->dev;
-//   st->ino = ip->inum;
-//   st->type = ip->type;
-//   st->nlink = ip->nlink;
-//   st->size = ip->size;
-// }
-//
-// // Read data from inode.
-// // Caller must hold ip->lock.
-// // If user_dst==1, then dst is a user virtual address;
-// // otherwise, dst is a kernel address.
-// int
-// readi(struct inode *ip, int user_dst, uint64 dst, uint off, uint n)
-// {
-//   uint tot, m;
-//   struct buf *bp;
-//
-//   if(off > ip->size || off + n < off)
-//     return 0;
-//   if(off + n > ip->size)
-//     n = ip->size - off;
-//
-//   for(tot=0; tot<n; tot+=m, off+=m, dst+=m){
-//     uint addr = bmap(ip, off/BSIZE);
-//     if(addr == 0)
-//       break;
-//     bp = bread(ip->dev, addr);
-//     m = min(n - tot, BSIZE - off%BSIZE);
-//     if(either_copyout(user_dst, dst, bp->data + (off % BSIZE), m) == -1) {
-//       brelse(bp);
-//       tot = -1;
-//       break;
-//     }
-//     brelse(bp);
-//   }
-//   return tot;
-// }
-//
-// // Write data to inode.
-// // Caller must hold ip->lock.
-// // If user_src==1, then src is a user virtual address;
-// // otherwise, src is a kernel address.
-// // Returns the number of bytes successfully written.
-// // If the return value is less than the requested n,
-// // there was an error of some kind.
-// int
-// writei(struct inode *ip, int user_src, uint64 src, uint off, uint n)
-// {
-//   uint tot, m;
-//   struct buf *bp;
-//
-//   if(off > ip->size || off + n < off)
-//     return -1;
-//   if(off + n > MAXFILE*BSIZE)
-//     return -1;
-//
-//   for(tot=0; tot<n; tot+=m, off+=m, src+=m){
-//     uint addr = bmap(ip, off/BSIZE);
-//     if(addr == 0)
-//       break;
-//     bp = bread(ip->dev, addr);
-//     m = min(n - tot, BSIZE - off%BSIZE);
-//     if(either_copyin(bp->data + (off % BSIZE), user_src, src, m) == -1) {
-//       brelse(bp);
-//       break;
-//     }
-//     log_write(bp);
-//     brelse(bp);
-//   }
-//
-//   if(off > ip->size)
-//     ip->size = off;
-//
-//   // write the i-node back to disk even if the size didn't change
-//   // because the loop above might have called bmap() and added a new
-//   // block to ip->addrs[].
-//   iupdate(ip);
-//
-//   return tot;
-// }
-//
 // // Directories
 //
 // int
