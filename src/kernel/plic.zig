@@ -32,12 +32,12 @@ pub fn initHart() void {
 // ask the PLIC what interrupt we should serve.
 pub fn claim() Irq {
     const hart = Cpu.getCurrentId(); 
-    const irq = ml.plic.machineClaimCompleteRegister(hart).*;
+    const irq = ml.plic.supervisorClaimCompleteRegister(hart).*;
     return @enumFromInt(irq);
 }
 
 // tell the PLIC we've served this IRQ.
 pub fn complete(irq: Irq) void {
     const hart = Cpu.getCurrentId();
-    ml.plic.machineClaimCompleteRegister(hart).* = @intFromEnum(irq);
+    ml.plic.supervisorClaimCompleteRegister(hart).* = @intFromEnum(irq);
 }

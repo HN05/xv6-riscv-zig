@@ -178,6 +178,7 @@ fn handleDeviceInterrupt(scause: csr.Scause) void {
             // irq indicates which device interrupted.
             const irq = plic.claim();
             switch (irq) {
+                .null => return,
                 .uart => uart.interrupt(),
                 .virtio => virtio.disk_driver.interrupt(),
                 else => print("unexpected interrupt irq={d}\n", .{irq}),
@@ -185,9 +186,7 @@ fn handleDeviceInterrupt(scause: csr.Scause) void {
             // the PLIC allows each device to raise at most one
             // interrupt at a time; tell the PLIC the device is
             // now allowed to interrupt again.
-            if (irq != .null) {
-                plic.complete(irq);
-            }
+            plic.complete(irq);
         },
         .supervisorSoftwareInterrupt => {
             // software interrupt from a machine-mode timer interrupt,
