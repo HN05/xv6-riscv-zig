@@ -394,7 +394,7 @@ pub fn eitherCopyOut(address: ad.AnyAddress, source: []const u8) !void {
             try copyOut(process.pageTable, user_addr, source);
         },
         .kernel => |kern_addr| {
-            @memmove(kern_addr, kern_addr.asPtr([*]u8));
+            @memmove(kern_addr.asPtr([*]u8), source);
         },
     }
 }

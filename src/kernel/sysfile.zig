@@ -23,6 +23,7 @@ const fslog = @import("log.zig");
 const Directory = @import("directory.zig");
 const fs = @import("filesystem.zig");
 const Pipe = @import("pipe.zig");
+const ad = @import("address.zig");
 
 pub fn sys_dup() u64 {
     const file = sysargs.getFile(.a0) catch |err| {
@@ -200,7 +201,9 @@ pub fn unlink() UnlinkErrors!void {
     // remove directory entry
     {
         var directoryEntity = Directory.DirectoryEntry{};
-        const writtenBytes = directory_inode.write(.kernel, @intFromPtr(&directoryEntity), offset, Directory.entry_size);
+        const directory_address = ad.AnyAddress{ .kernel = .fromPtr(&directoryEntity) };
+
+        const writtenBytes = directory_inode.write(directory_address, offset, Directory.entry_size) catch @panic("unlink: could not read directory");
         if (writtenBytes != Directory.entry_size) {
             @panic("unlink: writei");
         }
@@ -231,7 +234,7 @@ fn create(path: []const u8, kind: fs.FileType, device: Device.ID) CreateErrors!*
         errdefer inode.releasePut();
 
         // already exists
-        if (kind == .File and (inode.disk_inode.type == .file or inode.disk_inode.type == .device)) {
+        if (kind == .file and (inode.disk_inode.type == .file or inode.disk_inode.type == .device)) {
             return inode;
         }
 
@@ -260,7 +263,7 @@ fn create(path: []const u8, kind: fs.FileType, device: Device.ID) CreateErrors!*
     }
 
     parent_directory.linkEntry(name, inode.inode_number) catch return CreateErrors.FailedLinkParentDir;
-    if (kind == .Directory) {
+    if (kind == .directory) {
         parent_inode.disk_inode.link_count += 1; // for ".."
         parent_inode.update();
     }
@@ -322,7 +325,7 @@ pub fn open() !usize {
     fslog.beginOperation();
     defer fslog.endOperation();
 
-    const inode = if (openMode.create) try create(path[0..pathLen], .File, .{ .major = 0, .minor = 0 }) else blk: {
+    const inode = if (openMode.create) try create(path[0..pathLen], .file, .{ .major = 0, .minor = 0 }) else blk: {
         const existingInode = Inode.resolvePath(path[0..pathLen]) orelse return OpenErrors.InvalidPath;
 
         existingInode.lock();
@@ -345,7 +348,7 @@ pub fn open() !usize {
     if (inode.disk_inode.type == .device) {
         file.data.device = .{ .device_id = inode.disk_inode.device, .inode = inode };
     } else {
-        file.data.inode = .{ .offset = 0, .inode = inode};
+        file.data.inode = .{ .offset = 0, .inode = inode };
     }
     file.is_writeable = openMode.access.isWritable();
     file.is_readable = openMode.access.isReadable();
@@ -367,7 +370,7 @@ pub fn sys_mkdir() u64 {
     fslog.beginOperation();
     defer fslog.endOperation();
 
-    const inode = create(path[0..pathLen], .Directory, .{ .major = 0, .minor = 0 }) catch |err| {
+    const inode = create(path[0..pathLen], .directory, .{ .major = 0, .minor = 0 }) catch |err| {
         log.print("could not create dir: {s}", .{@errorName(err)});
         return sysargs.errorVal;
     };
@@ -400,7 +403,7 @@ pub fn sys_mknod() u64 {
     fslog.beginOperation();
     defer fslog.endOperation();
 
-    const inode = create(path[0..pathLen], .Device, .{ .major = @intCast(major), .minor = @intCast(minor) }) catch |err| {
+    const inode = create(path[0..pathLen], .device, .{ .major = @intCast(major), .minor = @intCast(minor) }) catch |err| {
         log.print("could not create node: {s}", .{@errorName(err)});
         return sysargs.errorVal;
     };
@@ -517,8 +520,6 @@ pub fn pipe() !void {
     var writeFileDescriptor = try sysargs.fileDescriptorAllocate(writeFile);
     errdefer process.openFiles[writeFileDescriptor] = null;
 
-    const pageTable: address.PageTablePtr = @ptrCast(@alignCast(process.*.pagetable));
-
-    mem.copyOut(pageTable, fileDescArray, std.mem.asBytes(&readFileDescriptor)) catch return PipeErrors.FailedToOutputFirstFd;
-    mem.copyOut(pageTable, fileDescArray.add(@sizeOf(c_int)), std.mem.asBytes(&writeFileDescriptor)) catch return PipeErrors.FailedToOutputSecondFd;
+    mem.copyOut(process.pageTable, fileDescArray, std.mem.asBytes(&readFileDescriptor)) catch return PipeErrors.FailedToOutputFirstFd;
+    mem.copyOut(process.pageTable, fileDescArray.add(@sizeOf(c_int)), std.mem.asBytes(&writeFileDescriptor)) catch return PipeErrors.FailedToOutputSecondFd;
 }

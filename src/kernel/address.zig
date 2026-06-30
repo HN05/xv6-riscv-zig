@@ -80,6 +80,10 @@ pub const AnyAddress = union(AddressKind) {
     user: UserAddress,
     kernel: KernelAddress,
 
+    pub fn fromPtr(pointer: *const anyopaque) AnyAddress {
+        return .{ .kernel = .fromPtr(pointer) };
+    }
+
     pub fn kind(self: AnyAddress) AddressKind {
         return std.meta.activeTag(self);
     }
@@ -110,11 +114,10 @@ pub fn Address(comptime addressKind: AddressKind) type {
         }
 
         pub fn asPtr(self: Self, comptime Ptr: type) Ptr {
-            if (kind == .user) {
-                @panic("can't dereference user pointer");
-            }
-
             comptime {
+                if (kind == .user) {
+                    @compileError("can't dereference user pointer");
+                }
                 if (@typeInfo(Ptr) != .pointer) {
                     @compileError("asPtr expects a pointer type");
                 }
@@ -123,6 +126,9 @@ pub fn Address(comptime addressKind: AddressKind) type {
         }
 
         pub fn fromPtr(ptr: *const anyopaque) Self {
+            comptime {
+                if (kind == .user) @compileError("can't init from userpointer");
+            }
             return Self.fromInt(@intFromPtr(ptr));
         }
 

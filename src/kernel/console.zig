@@ -58,8 +58,8 @@ pub fn init() void {
 //
 // user write()s to the console go here.
 //
-fn write(source_address: ad.AnyAddress, length: usize) Device.WriteErrors!usize {
-    var chars_written: usize = 0;
+fn write(source_address: ad.AnyAddress, length: u32) Device.WriteErrors!u32 {
+    var chars_written: u32 = 0;
 
     while (chars_written < length) : (chars_written += 1) {
         var char: u8 = undefined;
@@ -79,7 +79,7 @@ fn write(source_address: ad.AnyAddress, length: usize) Device.WriteErrors!usize 
 // address_kind indicates whether dst is a user
 // or kernel address.
 //
-fn read(destination_address: ad.AnyAddress, length: usize) Device.ReadErrors!usize {
+fn read(destination_address: ad.AnyAddress, length: u32) Device.ReadErrors!u32 {
     const target = length;
     var character: u8 = undefined;
     var characterBuffer: u8 = undefined;

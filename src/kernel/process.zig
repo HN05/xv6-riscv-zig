@@ -325,10 +325,11 @@ fn forkReturn() void {
 pub fn changeProcessSize(size_diff: i64) !void {
     const current = getCurrent() orelse return error.CouldNotGetCurrent;
     const old_size = current.size;
+    const abs_size_diff: usize = @abs(size_diff);
     if (size_diff > 0) {
-        current.size = try mem.uvmAlloc(current.pageTable, old_size, old_size + size_diff, .{ .read = true, .write = true });
+        current.size = try mem.uvmAlloc(current.pageTable, old_size, old_size + abs_size_diff, .{ .read = true, .write = true });
     } else if (size_diff < 0) {
-        current.size = try mem.uvmDealloc(current.pageTable, old_size, old_size + size_diff);
+        current.size = mem.uvmDealloc(current.pageTable, old_size, old_size - abs_size_diff);
     }
 }
 

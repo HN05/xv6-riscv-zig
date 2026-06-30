@@ -151,15 +151,15 @@ pub fn read(file: *File, address: ad.UserAddress, read_count: u32) !u32 {
         .device => |device| {
             if (device.device_id.major >= Device.deviceTable.len) return error.DeviceMajorCorrupted;
             if (Device.deviceTable[device.device_id.major].read) |deviceRead| {
-                bytes_read = try deviceRead(.user, address.value, read_count);
+                bytes_read = try deviceRead(.{ .user = address }, read_count);
             } else return error.DeviceCantRead;
         },
         .inode => |*inode_file| {
             inode_file.inode.lock();
             defer inode_file.inode.release();
 
-            bytes_read = try inode_file.inode.read(.user, address.value, inode_file.offset, read_count);
-            inode_file.inode.offset += bytes_read;
+            bytes_read = try inode_file.inode.read(.{ .user = address }, inode_file.offset, read_count);
+            inode_file.offset += bytes_read;
         },
         .none => @panic("can't read from unallocated file"),
     }
@@ -181,7 +181,7 @@ pub fn write(file: *File, address: ad.UserAddress, write_count: u32) !u32 {
         .device => |device| {
             if (device.device_id.major >= Device.deviceTable.len) return error.DeviceMajorCorrupted;
             if (Device.deviceTable[device.device_id.major].write) |deviceWrite| {
-                bytes_written = try deviceWrite(.user, address.value, write_count);
+                bytes_written = try deviceWrite(.{ .user = address }, write_count);
             } else return error.DeviceCantWrite;
         },
         .inode => |*inode_file| {
@@ -206,9 +206,8 @@ pub fn write(file: *File, address: ad.UserAddress, write_count: u32) !u32 {
                     inode.lock();
                     defer inode.release();
 
-                    const iteration_bytes_written = try inode.write(.user, address.value + bytes_written, inode_file.offset, bytes_to_write);
+                    const iteration_bytes_written = try inode.write(.{ .user = address.add(bytes_written) }, inode_file.offset, bytes_to_write);
                     inode_file.offset += iteration_bytes_written;
-
 
                     if (iteration_bytes_written != bytes_to_write) break; // error from inode write
                     bytes_written += iteration_bytes_written;

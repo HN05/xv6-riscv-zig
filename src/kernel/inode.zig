@@ -141,14 +141,15 @@ fn getDiskInode(buffer: *Buffer, inode_number: u32) *DiskInode {
 // Returns an unlocked but allocated and referenced inode,
 // or NULL if there is no free inode.
 pub fn alloc(device: Device.ID, file_type: fs.FileType) !*Inode {
-    for (0..fs.superBlock.ninodes) |inode_number| {
+    for (0..fs.superBlock.ninodes) |inode_number_usize| {
+        const inode_number: u32 = @intCast(inode_number_usize);
         const buffer = Buffer.read(device, getInodeBlock(inode_number));
         defer buffer.release();
 
         const disk_inode = getDiskInode(buffer, inode_number);
 
         if (disk_inode.type == .free) { // free inode
-            disk_inode = .{}; // reset it
+            disk_inode.* = .{}; // reset it
             disk_inode.type = file_type;
             log.write(buffer); // mark it allocated on the disk
             return get(device, inode_number);
@@ -380,7 +381,7 @@ pub fn read(inode: *Inode, destination_address: ad.AnyAddress, offset: u32, coun
 
         bytes_read += bytes_this_block;
         current_offset += bytes_this_block;
-        current_destination.add(bytes_this_block);
+        current_destination = current_destination.add(bytes_this_block);
     }
 
     return bytes_read;
@@ -411,7 +412,7 @@ pub fn write(inode: *Inode, source_address: ad.AnyAddress, offset: u32, count: u
 
         bytes_written += bytes_this_block;
         current_offset += bytes_this_block;
-        current_source.add(bytes_this_block);
+        current_source = current_source.add(bytes_this_block);
     }
 
     if (current_offset > inode.disk_inode.size) {

@@ -1,6 +1,7 @@
 const Inode = @import("inode.zig");
 const std = @import("std");
 const fs = @import("filesystem.zig");
+const ad = @import("address.zig");
 
 const Directory = @This();
 
@@ -26,7 +27,6 @@ pub const DirectoryEntry = extern struct {
     }
 };
 
-
 pub fn init(inode: *Inode) Directory {
     if (inode.disk_inode.type != .directory) {
         @panic("Directory.init: inode is not a directory");
@@ -40,8 +40,9 @@ pub fn init(inode: *Inode) Directory {
 pub fn lookupChild(directory: *const Directory, name: []const u8, entry_offset: ?*u32) ?*Inode {
     var current_offset: u32 = 0;
     var entry: DirectoryEntry = undefined;
+
     while (current_offset < directory.inode.disk_inode.size) : (current_offset += entry_size) {
-        const read_bytes = directory.inode.read(.kernel, @intFromPtr(&entry_size), current_offset, entry_size) catch @panic("dirlookup read failed");
+        const read_bytes = directory.inode.read(.fromPtr(&entry), current_offset, entry_size) catch @panic("dirlookup read failed");
         if (read_bytes != entry_size) @panic("did not read enough bytes dirlookup");
 
         if (entry.inode_number == 0) continue;
@@ -71,8 +72,9 @@ pub fn linkEntry(directory: *const Directory, name: []const u8, inode_number: u3
     // Look for an empty dirent.
     var current_offset: u32 = 0;
     var entry: DirectoryEntry = undefined;
+
     while (current_offset < directory.inode.disk_inode.size) : (current_offset += entry_size) {
-        const read_bytes = directory.inode.read(.kernel, @intFromPtr(&entry_size), current_offset, entry_size) catch @panic("linkEntry: could not read directory");
+        const read_bytes = directory.inode.read(.fromPtr(&entry), current_offset, entry_size) catch @panic("linkEntry: could not read directory");
         if (read_bytes != entry_size) @panic("did not read enough bytes dirlookup");
 
         if (entry.inode_number == 0) break;
@@ -82,7 +84,7 @@ pub fn linkEntry(directory: *const Directory, name: []const u8, inode_number: u3
     entry.name_length = @intCast(name.len);
     entry.inode_number = inode_number;
 
-    const written_bytes = try directory.inode.write(.kernel, @intFromPtr(&entry), current_offset, entry_size);
+    const written_bytes = try directory.inode.write(.fromPtr(&entry), current_offset, entry_size);
     if (written_bytes != entry_size) return error.WriteMalformed;
 }
 
@@ -92,7 +94,7 @@ pub fn isEmpty(directory: *const Directory) bool {
     var directory_entry: DirectoryEntry = undefined;
 
     while (index * directory_offset < directory.inode.disk_inode.size) : (index += 1) {
-        const read_bytes = directory.inode.read(.kernel, @intFromPtr(&directory_entry), @intCast(index * directory_offset), directory_offset) catch @panic("can't read directory");
+        const read_bytes = directory.inode.read(.fromPtr(&directory_entry), @intCast(index * directory_offset), directory_offset) catch @panic("can't read directory");
         if (read_bytes != directory_offset) {
             @panic("isDirectoryEmpty: readi");
         }

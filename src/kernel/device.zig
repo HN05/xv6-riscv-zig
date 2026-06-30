@@ -21,8 +21,8 @@ const Device = @This();
 
 // map major device number to device functions.
 // addr kind, address, number
-read: ?*const fn (ad.AnyAddress, usize) ReadErrors!usize = null,
-write: ?*const fn (ad.AnyAddress, usize) WriteErrors!usize = null,
+read: ?*const fn (ad.AnyAddress, u32) ReadErrors!u32 = null,
+write: ?*const fn (ad.AnyAddress, u32) WriteErrors!u32 = null,
 
 pub var deviceTable = [_]Device{.{}} ** param.device_number;
 

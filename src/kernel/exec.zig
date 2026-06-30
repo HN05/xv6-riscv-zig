@@ -21,7 +21,7 @@ fn loadSegment(pageTable: ad.PageTablePtr, virtualAddress: ad.UserAddress, inode
         // check if on last page
         const readCount = if (size - currentPage < ad.page_size) size - currentPage else ad.page_size;
 
-        const readResult = try inode.read(.kernel, physicalAddress.toInt(), offset + currentPage, readCount);
+        const readResult = try inode.read(.{ .kernel = physicalAddress }, offset + currentPage, readCount);
 
         if (readResult != readCount) return error.CouldNotRead;
     }
@@ -51,7 +51,7 @@ pub fn exec(path: []const u8, argv: [][]const u8) !usize {
         // Check ELF header
         var elfHeader: elf.ElfHeader = undefined;
         {
-            const readBytes = try inode.read(.kernel, @intFromPtr(&elfHeader), 0, @sizeOf(elf.ElfHeader));
+            const readBytes = try inode.read(.fromPtr(&elfHeader), 0, @sizeOf(elf.ElfHeader));
             if (readBytes != @sizeOf(elf.ElfHeader)) return error.CouldNotReadElfHeader;
             if (!elfHeader.elfIdentifier.isValid()) return error.CorruptedElfHeader;
         }
@@ -60,9 +60,10 @@ pub fn exec(path: []const u8, argv: [][]const u8) !usize {
         // Load program into memory.
         var programHeader: elf.ProgramHeader = undefined;
         const programHeaderSize = @sizeOf(elf.ProgramHeader);
+
         for (0..elfHeader.programHeaderEntryNum) |programHeaderEntryIndex| {
             const offset = elfHeader.programHeaderOffset + programHeaderEntryIndex * programHeaderSize;
-            const readBytes = try inode.read(.kernel, @intFromPtr(&programHeader), @intCast(offset), programHeaderSize);
+            const readBytes = try inode.read(.fromPtr(&programHeader), @intCast(offset), programHeaderSize);
             if (readBytes != programHeaderSize) return error.CouldNotReadProgramHeader;
 
             if (programHeader.type != .load) continue;
@@ -73,10 +74,10 @@ pub fn exec(path: []const u8, argv: [][]const u8) !usize {
             const virtualAddress: ad.UserAddress = .fromInt(programHeader.virtualAddress);
             if (!virtualAddress.isPageAligned()) return error.MemoryNotPageAligned;
 
-            const newProgramSize = try mem.uvmAlloc(@ptrCast(@alignCast(pageTable)), programSize, newSize[0], programHeader.flags.toPagePermissions());
+            const newProgramSize = try mem.uvmAlloc(pageTable, programSize, newSize[0], programHeader.flags.toPagePermissions());
             programSize = newProgramSize;
 
-            try loadSegment(@ptrCast(@alignCast(pageTable)), virtualAddress, inode, @intCast(programHeader.offset), @intCast(programHeader.fileSize));
+            try loadSegment(pageTable, virtualAddress, inode, @intCast(programHeader.offset), @intCast(programHeader.fileSize));
         }
     }
 
@@ -86,9 +87,9 @@ pub fn exec(path: []const u8, argv: [][]const u8) !usize {
     // Make the first inaccessible as a stack guard.
     // Use the second as the user stack.
     const alignedProgramSize = ad.pageRoundUp(programSize);
-    programSize = try mem.uvmAlloc(@ptrCast(@alignCast(pageTable)), alignedProgramSize, alignedProgramSize + 2 * ad.page_size, .{ .read = true, .write = true });
+    programSize = try mem.uvmAlloc(pageTable, alignedProgramSize, alignedProgramSize + 2 * ad.page_size, .{ .read = true, .write = true });
 
-    mem.uvmClearUser(@ptrCast(@alignCast(pageTable)), .fromInt(programSize - 2 * ad.page_size));
+    mem.uvmClearUser(pageTable, .fromInt(programSize - 2 * ad.page_size));
     var stackPointer = programSize;
     const stackBase = stackPointer - ad.page_size;
 
@@ -111,7 +112,7 @@ pub fn exec(path: []const u8, argv: [][]const u8) !usize {
     stackPointer -= stackPointer % 16;
     if (stackPointer < stackBase) return error.OutOfArgumentPointerSpace;
 
-    try mem.copyOut(@ptrCast(@alignCast(pageTable)), .fromInt(stackPointer), std.mem.sliceAsBytes(userStack[0..(argv.len + 1)]));
+    try mem.copyOut(pageTable, .fromInt(stackPointer), std.mem.sliceAsBytes(userStack[0..(argv.len + 1)]));
 
     // arguments to user main(argc, argv)
     // argc is returned via the system call return
