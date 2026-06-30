@@ -21,10 +21,10 @@ const Device = @This();
 
 // map major device number to device functions.
 // addr kind, address, number
-read: fn (comptime ad.AddressKind, usize, usize) ReadErrors!usize,
-write: fn (comptime ad.AddressKind, usize, usize) WriteErrors!usize,
+read: ?fn (comptime ad.AddressKind, usize, usize) ReadErrors!usize = null,
+write: ?fn (comptime ad.AddressKind, usize, usize) WriteErrors!usize = null,
 
-pub var deviceTable: [param.device_number]Device = undefined;
+pub var deviceTable = [_]Device{.{}} ** param.device_number;
 
 pub const ReadErrors = error{ ProcessKilled, NoRunningProcess };
 pub const WriteErrors = error{};
