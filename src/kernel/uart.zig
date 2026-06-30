@@ -87,7 +87,7 @@ pub fn putCharacter(ch: u8) void {
 // to echo characters. it spins waiting for the uart's
 // output register to be empty.
 pub fn putCharSync(ch: u8) void {
-    interrupts.popOff();
+    interrupts.pushOff();
     defer interrupts.popOff();
 
     if (log_root.panicked) while (true) {};
