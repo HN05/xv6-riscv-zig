@@ -94,7 +94,7 @@ fn readHead() void {
     const buffer = Buffer.read(log.device, log.start);
     defer buffer.release();
 
-    const disk_header: *Header = @ptrCast(&buffer.data);
+    const disk_header: *Header = buffer.castData(Header);
 
     log.header.copyFrom(disk_header);
 }
@@ -105,7 +105,7 @@ fn writeHead() void {
     const buffer = Buffer.read(log.device, log.start);
     defer buffer.release();
 
-    const disk_header: *Header = @ptrCast(&buffer.data);
+    const disk_header: *Header = buffer.castData(Header);
     disk_header.copyFrom(log.header);
 
     buffer.write();

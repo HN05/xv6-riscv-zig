@@ -43,7 +43,8 @@ pub fn sys_sleep() u64 {
 
 pub fn sys_kill() u64 {
     const pid: u32 = @truncate(sysargs.getInt(.a0));
-    return Process.kill(@bitCast(pid)) catch sysargs.errorVal;
+    Process.kill(@bitCast(pid)) catch return sysargs.errorVal;
+    return 0;
 }
 
 pub fn sys_uptime() u64 {

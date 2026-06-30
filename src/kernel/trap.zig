@@ -62,7 +62,7 @@ export fn usertrap() void {
             handleDeviceInterrupt(scause);
         },
         .exception => {
-            print("usertrap(): unexpected scause {x} pid={d}\n", .{ scause.raw(), process.pid });
+            print("usertrap(): unexpected scause {x} pid={d}\n", .{ scause.raw(), process.pid_unsafe });
             print("            sepc={x} stval={x}\n", .{ csr.Sepc.read(), csr.Stval.read() });
             process.setKilled();
         },

@@ -166,6 +166,7 @@ fn allocDescriptorsSlice(descriptor_destination: []u16) !void {
             for (descriptor_destination[0..index]) |free_descriptor| {
                 freeDescriptor(free_descriptor);
             }
+            return error.CouldNotAllocateDescriptor;
         };
     }
 }

@@ -299,7 +299,7 @@ pub fn initFirstUser() void {
     @memcpy(initialProcess.nameBuffer[0..name.len], name);
     initialProcess.nameLength = name.len;
 
-    initialProcess.currentWorkingDirectory = .resolvePath("/");
+    initialProcess.currentWorkingDirectory = Inode.resolvePath("/").?;
     initialProcess.state_unsafe = .runnable;
 }
 
@@ -391,7 +391,7 @@ pub fn fork() !u32 {
 // Pass p's abandoned children to init.
 // Caller must hold wait_lock.
 fn reparentChildren(abandonedProcess: *Process) void {
-    for (processTable) |proc| {
+    for (&processTable) |*proc| {
         if (proc.parentProcess == abandonedProcess) {
             proc.parentProcess = initialProcess;
             scheduler.wakeup(initialProcess);
@@ -444,7 +444,6 @@ pub fn exit(status: i32) void {
 }
 
 // Wait for a child process to exit and return its pid.
-// Return -1 if this process has no children.
 pub fn wait(exit_status_destination: ?ad.UserAddress) !u32 {
     const current_process = getCurrent() orelse return error.CouldNotGetCurrent;
 
@@ -454,7 +453,7 @@ pub fn wait(exit_status_destination: ?ad.UserAddress) !u32 {
     while (true) {
         // Scan through table looking for exited children.
         var have_kids: bool = false;
-        for (processTable) |process| {
+        for (&processTable) |*process| {
             if (process.parentProcess != current_process) continue;
 
             // make sure the child isn't still in exit() or switchContext().
@@ -474,9 +473,10 @@ pub fn wait(exit_status_destination: ?ad.UserAddress) !u32 {
         }
 
         // No point waiting if we don't have any children.
-        if (!have_kids or isKilled(current_process)) return;
+        if (!have_kids) return error.DoesNotHaveChildren;
+        if (current_process.isKilled()) return error.ProcessIsKilled;
 
-        scheduler.sleep(current_process, waitLock);
+        scheduler.sleep(current_process, &waitLock);
     }
 }
 
@@ -484,7 +484,7 @@ pub fn wait(exit_status_destination: ?ad.UserAddress) !u32 {
 // The victim won't exit until it tries to return
 // to user space (see usertrap() in trap.c).
 pub fn kill(target_pid: u32) !void {
-    for (processTable) |process| {
+    for (&processTable) |*process| {
         process.lock.acquire();
         defer process.lock.release();
 
@@ -519,7 +519,7 @@ pub fn isKilled(process: *Process) bool {
 // No lock to avoid wedging a stuck machine further.
 pub fn dump() void {
     print("\n", .{});
-    for (processTable) |process| {
+    for (&processTable) |*process| {
         if (process.state_unsafe == .unused) continue;
         print("{d} {s} {s} \n", .{ process.pid_unsafe, @tagName(process.state_unsafe), process.nameSlice() });
     }

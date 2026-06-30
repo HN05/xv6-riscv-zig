@@ -3,7 +3,7 @@ const common = @import("common");
 const Context = common.riscv.Context;
 const interrupts = @import("interrupts.zig");
 const Process = @import("process.zig");
-const lk = @import("spinlock.zig");
+const SpinLock = @import("spinlock.zig");
 
 // from switchContext.S
 extern const switchContext: fn (*Context, *Context) void;
@@ -23,7 +23,7 @@ pub fn schedulerLoop() void {
         // Avoid deadlock by ensuring that devices can interrupt.
         interrupts.enable();
 
-        for (Process.processTable) |process| {
+        for (&Process.processTable) |*process| {
             process.lock.acquire();
             defer process.lock.release();
 
@@ -77,7 +77,7 @@ pub fn yield() void {
 
 // Atomically release lock and sleep on chan.
 // Reacquires lock when awakened.
-pub fn sleep(channel: *anyopaque, spinlock: *lk.SpinLock) void {
+pub fn sleep(channel: *anyopaque, spinlock: *SpinLock) void {
     const process = Process.getCurrent() orelse @panic("no process to put  sleep");
 
     // Must acquire p->lock in order to

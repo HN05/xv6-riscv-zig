@@ -290,7 +290,7 @@ pub fn uvmCopy(oldTable: ad.PageTablePtr, newTable: ad.PageTablePtr, size: usize
         if (!pte.valid) @panic("uvmCopy: page not present");
         const oldMemory = pte.asAddress().asPtr(ad.PagePointer);
 
-        const newPage = alloc.allocPage() catch return error.OutOfMemory;
+        const newPage = alloc.allocPage() orelse return error.OutOfMemory;
         errdefer alloc.freePage(newPage);
 
         @memmove(newPage, oldMemory);
