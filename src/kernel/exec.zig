@@ -13,7 +13,7 @@ const fs = @import("filesystem.zig");
 // va must be page-aligned
 // and the pages from va to va+sz must already be mapped.
 // Returns 0 on success, -1 on failure.
-fn loadSegment(pageTable: ad.PageTablePtr, virtualAddress: ad.UserAddress, inode: *Inode, offset: u64, size: u64) !void {
+fn loadSegment(pageTable: ad.PageTablePtr, virtualAddress: ad.UserAddress, inode: *Inode, offset: u32, size: u32) !void {
     var currentPage: u32 = 0;
     while (currentPage < size) : (currentPage += ad.page_size) {
         const physicalAddress = mem.walkAddr(pageTable, virtualAddress.add(currentPage)) catch @panic("loadSegment: address should exist");
@@ -44,7 +44,7 @@ pub fn exec(path: []const u8, argv: [][]const u8) !usize {
         log.beginOperation();
         defer log.endOperation();
 
-        inode = .resolvePath(path) orelse return error.CouldNotResolvePath;
+        inode = Inode.resolvePath(path) orelse return error.CouldNotResolvePath;
         inode.lock();
         defer inode.releasePut();
 
@@ -62,7 +62,7 @@ pub fn exec(path: []const u8, argv: [][]const u8) !usize {
         const programHeaderSize = @sizeOf(elf.ProgramHeader);
         for (0..elfHeader.programHeaderEntryNum) |programHeaderEntryIndex| {
             const offset = elfHeader.programHeaderOffset + programHeaderEntryIndex * programHeaderSize;
-            const readBytes = inode.read(.kernel, @intFromPtr(&programHeader), @intCast(offset), programHeaderSize);
+            const readBytes = try inode.read(.kernel, @intFromPtr(&programHeader), @intCast(offset), programHeaderSize);
             if (readBytes != programHeaderSize) return error.CouldNotReadProgramHeader;
 
             if (programHeader.type != .load) continue;
@@ -76,7 +76,7 @@ pub fn exec(path: []const u8, argv: [][]const u8) !usize {
             const newProgramSize = try mem.uvmAlloc(@ptrCast(@alignCast(pageTable)), programSize, newSize[0], programHeader.flags.toPagePermissions());
             programSize = newProgramSize;
 
-            try loadSegment(@ptrCast(@alignCast(pageTable)), virtualAddress, inode, programHeader.offset, programHeader.fileSize);
+            try loadSegment(@ptrCast(@alignCast(pageTable)), virtualAddress, inode, @intCast(programHeader.offset), @intCast(programHeader.fileSize));
         }
     }
 

@@ -8,7 +8,7 @@ pub const page_size = riscv.page_size;
 
 // custom logic since it is power of 2
 pub fn pageRoundDown(val: usize) usize {
-    return val & ~@as(usize, page_size - 1); 
+    return val & ~@as(usize, page_size - 1);
 }
 
 pub fn pageRoundUp(val: usize) usize {
@@ -53,7 +53,7 @@ pub const PageTableEntry = packed struct(usize) {
 
     ppn: u44 = 0, // page number
     reserved: u10 = 0, // must be zero
-    
+
     pub fn isBranch(self: *PageTableEntry) bool {
         return self.permissions == PagePermissions{}; // r, w and x are not set for branch
     }
@@ -74,6 +74,22 @@ pub const PageTablePtr = *align(page_size) PageTable;
 pub const AddressKind = enum {
     user,
     kernel,
+};
+
+pub const AnyAddress = union(AddressKind) {
+    user: UserAddress,
+    kernel: KernelAddress,
+
+    pub fn kind(self: AnyAddress) AddressKind {
+        return std.meta.activeTag(self);
+    }
+
+    pub fn add(self: AnyAddress, offset: usize) AnyAddress {
+        return switch (self) {
+            .user => |addr| .{ .user = addr.add(offset) },
+            .kernel => |addr| .{ .kernel = addr.add(offset) },
+        };
+    }
 };
 
 // is constant, a new value is always returned, never modified in place
@@ -145,7 +161,6 @@ pub fn Address(comptime addressKind: AddressKind) type {
         pub fn isEqual(self: Self, address: Self) bool {
             return self.value == address.value;
         }
-
 
         pub fn isPageAligned(self: Self) bool {
             return self.pageOffset() == 0;

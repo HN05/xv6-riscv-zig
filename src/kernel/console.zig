@@ -58,14 +58,14 @@ pub fn init() void {
 //
 // user write()s to the console go here.
 //
-fn write(comptime address_kind: ad.AddressKind, source: usize, length: usize) Device.WriteErrors!usize {
+fn write(source_address: ad.AnyAddress, length: usize) Device.WriteErrors!usize {
     var chars_written: usize = 0;
 
     while (chars_written < length) : (chars_written += 1) {
         var char: u8 = undefined;
 
         // breaks if fails
-        mem.eitherCopyIn(address_kind, source + chars_written, std.mem.asBytes(&char)) catch break;
+        mem.eitherCopyIn(source_address.add(chars_written), std.mem.asBytes(&char)) catch break;
 
         uart.putCharacter(char);
     }
@@ -79,11 +79,11 @@ fn write(comptime address_kind: ad.AddressKind, source: usize, length: usize) De
 // address_kind indicates whether dst is a user
 // or kernel address.
 //
-fn read(comptime address_kind: ad.AddressKind, destination: usize, length: usize) Device.ReadErrors!usize {
+fn read(destination_address: ad.AnyAddress, length: usize) Device.ReadErrors!usize {
     const target = length;
     var character: u8 = undefined;
     var characterBuffer: u8 = undefined;
-    var destination_address = ad.Address(address_kind){ .value = destination };
+    var current_address = destination_address;
     var charsLeft = length;
 
     inputBuffer.lock.acquire();
@@ -114,9 +114,9 @@ fn read(comptime address_kind: ad.AddressKind, destination: usize, length: usize
         // copy the input byte to the user-space buffer.
         characterBuffer = character;
 
-        mem.eitherCopyOut(address_kind, destination_address.toInt(), std.mem.asBytes(&characterBuffer)) catch break;
+        mem.eitherCopyOut(current_address, std.mem.asBytes(&characterBuffer)) catch break;
 
-        destination_address = destination_address.add(1);
+        current_address = current_address.add(1);
         charsLeft -= 1;
 
         if (character == '\n') {

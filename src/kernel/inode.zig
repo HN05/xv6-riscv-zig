@@ -356,7 +356,7 @@ pub fn getStatus(inode: *Inode) fs.FileStatus {
 
 // Read data from inode.
 // Caller must hold ip->lock.
-pub fn read(inode: *Inode, comptime address_kind: ad.AddressKind, destination: usize, offset: u32, count: u32) !u32 {
+pub fn read(inode: *Inode, destination_address: ad.AnyAddress, offset: u32, count: u32) !u32 {
     if (offset > inode.disk_inode.size) return error.OutOfInodeRange;
     if (@addWithOverflow(offset, count)[1] == 1) return error.OffsetOverflows;
 
@@ -367,7 +367,7 @@ pub fn read(inode: *Inode, comptime address_kind: ad.AddressKind, destination: u
 
     var bytes_read: u32 = 0;
     var current_offset = offset;
-    var current_destination = destination;
+    var current_destination = destination_address;
 
     while (bytes_read < bytes_to_read) {
         const address = inode.getBlockAddress(current_offset / fs.block_size) catch break;
@@ -376,11 +376,11 @@ pub fn read(inode: *Inode, comptime address_kind: ad.AddressKind, destination: u
 
         const block_offset = current_offset % fs.block_size;
         const bytes_this_block = @min(bytes_to_read - bytes_read, fs.block_size - block_offset);
-        try mem.eitherCopyOut(address_kind, current_destination, buffer.data[block_offset .. block_offset + bytes_this_block]);
+        try mem.eitherCopyOut(current_destination, buffer.data[block_offset .. block_offset + bytes_this_block]);
 
         bytes_read += bytes_this_block;
         current_offset += bytes_this_block;
-        current_destination += bytes_this_block;
+        current_destination.add(bytes_this_block);
     }
 
     return bytes_read;
@@ -389,14 +389,14 @@ pub fn read(inode: *Inode, comptime address_kind: ad.AddressKind, destination: u
 // Write data to inode.
 // Caller must hold ip->lock.
 // Returns the number of bytes successfully written.
-pub fn write(inode: *Inode, comptime address_kind: ad.AddressKind, source: usize, offset: u32, count: u32) !u32 {
+pub fn write(inode: *Inode, source_address: ad.AnyAddress, offset: u32, count: u32) !u32 {
     if (offset > inode.disk_inode.size) return error.OutOfInodeRange;
     if (@addWithOverflow(offset, count)[1] == 1) return error.OffsetOverflows;
     if (offset + count > fs.block_size * max_file_block_count) return error.FileOverflow;
 
     var bytes_written: u32 = 0;
     var current_offset = offset;
-    var current_source = source;
+    var current_source = source_address;
 
     while (bytes_written < count) {
         const address = inode.getBlockAddress(current_offset / fs.block_size) catch break;
@@ -405,13 +405,13 @@ pub fn write(inode: *Inode, comptime address_kind: ad.AddressKind, source: usize
 
         const block_offset = current_offset % fs.block_size;
         const bytes_this_block = @min(count - bytes_written, fs.block_size - block_offset);
-        try mem.eitherCopyIn(address_kind, current_source, buffer.data[block_offset .. block_offset + bytes_this_block]);
+        try mem.eitherCopyIn(current_source, buffer.data[block_offset .. block_offset + bytes_this_block]);
 
         log.write(buffer);
 
         bytes_written += bytes_this_block;
         current_offset += bytes_this_block;
-        current_source += bytes_this_block;
+        current_source.add(bytes_this_block);
     }
 
     if (current_offset > inode.disk_inode.size) {

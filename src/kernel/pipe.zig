@@ -34,11 +34,11 @@ pub fn alloc(read_file: **File, write_file: **File) !void {
     pipe.write_count = 0;
     pipe.lock = .{ .name = "pipe" };
 
-    read_file.*.data.pipe = .{ .pipe = pipe };
+    read_file.*.data.pipe = pipe;
     read_file.*.is_readable = true;
     read_file.*.is_writeable = false;
 
-    write_file.*.data.pipe = .{ .pipe = pipe };
+    write_file.*.data.pipe = pipe;
     write_file.*.is_readable = false;
     write_file.*.is_writeable = true;
 }
@@ -69,7 +69,7 @@ pub fn write(pipe: *Pipe, address: ad.UserAddress, write_count: u32) !u32 {
     pipe.lock.acquire();
     defer pipe.lock.release();
 
-    var bytes_written = 0;
+    var bytes_written: u32 = 0;
 
     while (bytes_written < write_count) {
         if (!pipe.read_is_open) return error.PipeReadIsClosed;
@@ -112,7 +112,7 @@ pub fn read(pipe: *Pipe, address: ad.UserAddress, read_count: u32) !u32 {
         pipe.lock.sleep(&pipe.read_count);
     }
 
-    var bytes_read = 0;
+    var bytes_read: u32 = 0;
 
     while (bytes_read < read_count) {
         const bytes_remaining = pipe.write_count - pipe.read_count;

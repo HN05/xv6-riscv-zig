@@ -386,25 +386,29 @@ pub fn copyOutTerminated(pgTable: ad.PageTablePtr, destVirtualAddress: ad.UserAd
 }
 
 // Copy to either a user address, or kernel address,
-pub fn eitherCopyOut(comptime address_kind: ad.AddressKind, destination: usize, source: []const u8) !void {
+pub fn eitherCopyOut(address: ad.AnyAddress, source: []const u8) !void {
     const process = try Process.getCurrentThrows();
-    const destination_address = ad.Address(address_kind){.value = destination};
 
-    if (address_kind == .user) {
-        try copyOut(process.pageTable, destination_address, source);
-    } else {
-        @memmove(destination_address.asPtr([*]u8), source);
+    switch (address) {
+        .user => |user_addr| {
+            try copyOut(process.pageTable, user_addr, source);
+        },
+        .kernel => |kern_addr| {
+            @memmove(kern_addr, kern_addr.asPtr([*]u8));
+        },
     }
 }
 
 // Copy from either a user address, or kernel address,
-pub fn eitherCopyIn(comptime address_kind: ad.AddressKind, source: usize, destination: []u8) !void {
+pub fn eitherCopyIn(address: ad.AnyAddress, destination: []u8) !void {
     const process = try Process.getCurrentThrows();
-    const source_address = ad.Address(address_kind){.value = source};
 
-    if (address_kind == .user) {
-        try copyIn(process.pageTable, destination, source_address);
-    } else {
-        @memmove(destination, source_address.asPtr([*]u8));
+    switch (address) {
+        .user => |user_addr| {
+            try copyIn(process.pageTable, destination, user_addr);
+        },
+        .kernel => |kern_addr| {
+            @memmove(destination, kern_addr.asPtr([*]u8));
+        },
     }
 }

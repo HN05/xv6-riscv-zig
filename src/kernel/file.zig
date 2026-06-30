@@ -26,7 +26,7 @@ pub const FileData = union(FileType) {
     },
     device: struct {
         inode: *Inode,
-        major: @FieldType(Device.ID, "major"),
+        device_id: Device.ID,
     },
 };
 
@@ -142,15 +142,15 @@ pub fn getStatus(file: *const File, destination_address: ad.UserAddress) !void {
 pub fn read(file: *File, address: ad.UserAddress, read_count: u32) !u32 {
     if (!file.is_readable) return error.FileNotReadable;
 
-    var bytes_read = 0;
+    var bytes_read: u32 = 0;
 
     switch (file.data) {
         .pipe => |pipe| {
             bytes_read = try pipe.read(address, read_count);
         },
         .device => |device| {
-            if (device.major >= Device.deviceTable.len) return error.DeviceMajorCorrupted;
-            if (Device.deviceTable[device.major].read) |deviceRead| {
+            if (device.device_id.major >= Device.deviceTable.len) return error.DeviceMajorCorrupted;
+            if (Device.deviceTable[device.device_id.major].read) |deviceRead| {
                 bytes_read = try deviceRead(.user, address.value, read_count);
             } else return error.DeviceCantRead;
         },
@@ -172,15 +172,15 @@ pub fn read(file: *File, address: ad.UserAddress, read_count: u32) !u32 {
 pub fn write(file: *File, address: ad.UserAddress, write_count: u32) !u32 {
     if (!file.is_writeable) return error.FileNotWriteable;
 
-    var bytes_written = 0;
+    var bytes_written: u32 = 0;
 
     switch (file.data) {
         .pipe => |pipe| {
             bytes_written = try pipe.write(address, write_count);
         },
         .device => |device| {
-            if (device.major >= Device.deviceTable.len) return error.DeviceMajorCorrupted;
-            if (Device.deviceTable[device.major].write) |deviceWrite| {
+            if (device.device_id.major >= Device.deviceTable.len) return error.DeviceMajorCorrupted;
+            if (Device.deviceTable[device.device_id.major].write) |deviceWrite| {
                 bytes_written = try deviceWrite(.user, address.value, write_count);
             } else return error.DeviceCantWrite;
         },
