@@ -154,12 +154,12 @@ pub fn read(file: *File, address: ad.UserAddress, read_count: u32) !u32 {
                 bytes_read = try deviceRead(.user, address.value, read_count);
             } else return error.DeviceCantRead;
         },
-        .inode => |inode_file| {
+        .inode => |*inode_file| {
             inode_file.inode.lock();
             defer inode_file.inode.release();
 
             bytes_read = try inode_file.inode.read(.user, address.value, inode_file.offset, read_count);
-            file.data.inode.offset += bytes_read;
+            inode_file.inode.offset += bytes_read;
         },
         .none => @panic("can't read from unallocated file"),
     }
@@ -184,7 +184,7 @@ pub fn write(file: *File, address: ad.UserAddress, write_count: u32) !u32 {
                 bytes_written = try deviceWrite(.user, address.value, write_count);
             } else return error.DeviceCantWrite;
         },
-        .inode => |inode_file| {
+        .inode => |*inode_file| {
             const inode = inode_file.inode;
 
             //  TODO:
@@ -207,7 +207,7 @@ pub fn write(file: *File, address: ad.UserAddress, write_count: u32) !u32 {
                     defer inode.release();
 
                     const iteration_bytes_written = try inode.write(.user, address.value + bytes_written, inode_file.offset, bytes_to_write);
-                    file.data.inode.offset += iteration_bytes_written;
+                    inode_file.offset += iteration_bytes_written;
 
 
                     if (iteration_bytes_written != bytes_to_write) break; // error from inode write
