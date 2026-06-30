@@ -351,8 +351,6 @@ pub fn getStatus(inode: *Inode) fs.FileStatus {
 
 // Read data from inode.
 // Caller must hold ip->lock.
-// If user_dst==1, then dst is a user virtual address;
-// otherwise, dst is a kernel address.
 pub fn read(inode: *Inode, comptime address_kind: ad.AddressKind, destination: usize, offset: u32, count: u32) !u32 {
     if (offset > inode.disk_inode.size) return error.OutOfInodeRange;
     if (@addWithOverflow(offset, count)[1] == 1) return error.OffsetOverflows;
@@ -371,7 +369,7 @@ pub fn read(inode: *Inode, comptime address_kind: ad.AddressKind, destination: u
         const buffer = Buffer.read(inode.filesystem_device, address);
         defer buffer.release();
 
-        const block_offset = offset % fs.block_size;
+        const block_offset = current_offset % fs.block_size;
         const bytes_this_block = @min(bytes_to_read - bytes_read, fs.block_size - block_offset);
         try mem.eitherCopyOut(address_kind, current_destination, buffer.data[block_offset .. block_offset + bytes_this_block]);
 
@@ -385,11 +383,7 @@ pub fn read(inode: *Inode, comptime address_kind: ad.AddressKind, destination: u
 
 // Write data to inode.
 // Caller must hold ip->lock.
-// If user_src==1, then src is a user virtual address;
-// otherwise, src is a kernel address.
 // Returns the number of bytes successfully written.
-// If the return value is less than the requested n,
-// there was an error of some kind.
 pub fn write(inode: *Inode, address_kind: ad.AddressKind, source: usize, offset: u32, count: u32) !u32 {
     if (offset > inode.disk_inode.size) return error.OutOfInodeRange;
     if (@addWithOverflow(offset, count)[1] == 1) return error.OffsetOverflows;
@@ -404,7 +398,7 @@ pub fn write(inode: *Inode, address_kind: ad.AddressKind, source: usize, offset:
         const buffer = Buffer.read(inode.filesystem_device, address);
         defer buffer.release();
 
-        const block_offset = offset % fs.block_size;
+        const block_offset = current_offset % fs.block_size;
         const bytes_this_block = @min(count - bytes_written, fs.block_size - block_offset);
         try mem.eitherCopyIn(address_kind, current_source, buffer.data[block_offset .. block_offset + bytes_this_block]);
 
