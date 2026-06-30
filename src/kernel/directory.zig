@@ -1,8 +1,29 @@
 const Inode = @import("inode.zig");
+const std = @import("std");
 
 const Directory = @This();
 
 inode: *Inode,
+
+// Directory is a file containing a sequence of dirent structures.
+pub const DirectoryEntry = extern struct {
+    inode_number: u16,
+    name_length: u8,
+    name_buffer: [max_name_length]u8,
+
+    pub const max_name_length = 14;
+
+    pub fn nameSlice(entry: DirectoryEntry) []u8 {
+        return entry.name_buffer[0..entry.name_length];
+    }
+
+    pub fn matchesName(entry: DirectoryEntry, name: []u8) bool {
+        return std.mem.eql(u8, name, entry.nameSlice());
+    }
+};
+
+const entry_size = @sizeOf(DirectoryEntry);
+
 
 pub fn init(inode: *Inode) Directory {
     if (inode.disk_inode.type != .directory) {
@@ -14,53 +35,51 @@ pub fn init(inode: *Inode) Directory {
 
 // Look for a directory entry in a directory.
 // If found, set *poff to byte offset of entry.
-pub fn lookupChild(directory: *Directory, name: []u8, entry_offset: *u32) ?*Inode {
+pub fn lookupChild(directory: *Directory, name: []u8, entry_offset: ?*u32) ?*Inode {
+    var current_offset = 0;
+    var entry: DirectoryEntry = undefined;
+    while (current_offset < directory.inode.disk_inode.size) : (current_offset += entry_size) {
+        const read_bytes = directory.inode.read(.kernel, @intFromPtr(&entry_size), current_offset, entry_size) catch @panic("dirlookup read failed");
+        if (read_bytes != entry_size) @panic("did not read enough bytes dirlookup");
+
+        if (entry.inode_number == 0) continue;
+
+        if (entry.matchesName(name)) {
+            // entry matches path element
+            if (entry_offset) |destination| {
+                destination.* = current_offset;
+            }
+            return .get(directory.inode.filesystem_device, entry.inode_number);
+        }
+    }
+    return null;
 }
 
-//   for(off = 0; off < dp->size; off += sizeof(de)){
-//     if(readi(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
-//       panic("dirlookup read");
-//     if(de.inum == 0)
-//       continue;
-//     if(namecmp(name, de.name) == 0){
-//       // entry matches path element
-//       if(poff)
-//         *poff = off;
-//       inum = de.inum;
-//       return iget(dp->dev, inum);
-//     }
-//   }
-//
-//   return 0;
-// }
-//
-// // Write a new directory entry (name, inum) into the directory dp.
-// // Returns 0 on success, -1 on failure (e.g. out of disk blocks).
-// int
-// dirlink(struct inode *dp, char *name, uint inum)
-// {
-//   int off;
-//   struct dirent de;
-//   struct inode *ip;
-//
-//   // Check that name is not present.
-//   if((ip = dirlookup(dp, name, 0)) != 0){
-//     iput(ip);
-//     return -1;
-//   }
-//
-//   // Look for an empty dirent.
-//   for(off = 0; off < dp->size; off += sizeof(de)){
-//     if(readi(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
-//       panic("dirlink read");
-//     if(de.inum == 0)
-//       break;
-//   }
-//
-//   strncpy(de.name, name, DIRSIZ);
-//   de.inum = inum;
-//   if(writei(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
-//     return -1;
-//
-//   return 0;
-// }
+// Write a new directory entry (name, inum) into the directory dp.
+pub fn linkEntry(directory: Directory, name: []u8, inode_number: u32) !void {
+    if (name.len > DirectoryEntry.max_name_length) return error.NameToLong;
+
+  // Check that name is not present.
+    const existing_inode = directory.lookupChild(name, null);
+    if (existing_inode) |inode| {
+        inode.put();
+        return error.AlreadyExists;
+    }
+
+  // Look for an empty dirent.
+    var current_offset = 0;
+    var entry: DirectoryEntry = undefined;
+    while (current_offset < directory.inode.disk_inode.size) : (current_offset += entry_size) {
+        const read_bytes = directory.inode.read(.kernel, @intFromPtr(&entry_size), current_offset, entry_size) catch @panic("linkEntry: could not read directory");
+        if (read_bytes != entry_size) @panic("did not read enough bytes dirlookup");
+
+        if (entry.inode_number == 0) break;
+    }
+
+    @memcpy(&entry.name_buffer, name);
+    entry.name_length = name.len;
+    entry.inode_number = inode_number;
+
+    const written_bytes = try directory.inode.write(.kernel, @intFromPtr(&entry), current_offset, entry_size);
+    if (written_bytes != entry_size) return error.WriteMalformed;
+}

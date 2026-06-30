@@ -80,15 +80,6 @@ fn getFreeMapBlock(block: u32) u32 {
     return block / bitmap_bits_per_block + superBlock.bmapstart;
 }
 
-// Directory is a file containing a sequence of dirent structures.
-
-pub const DirectoryEntry = extern struct {
-    i_num: u16,
-    name: [max_name_length]u8,
-
-    pub const max_name_length = 14;
-};
-
 // File system implementation.  Five layers:
 //   + Blocks: allocator for raw disk blocks.
 //   + Log: crash recovery for multi-step updates.

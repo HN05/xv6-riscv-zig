@@ -202,9 +202,9 @@ pub const Scause = enum(usize) {
     }
 
     pub fn kind(self: Scause) TrapKind {
-if (self == .environmentCallFromUMode) return .syscall;
-if (self.isInterrupt()) return .interrupt:
-return .exception;
+        if (self == .environmentCallFromUMode) return .syscall;
+        if (self.isInterrupt()) return .interrupt;
+        return .exception;
     }
 
     pub inline fn readRaw() usize {
