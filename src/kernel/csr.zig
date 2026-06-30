@@ -202,27 +202,9 @@ pub const Scause = enum(usize) {
     }
 
     pub fn kind(self: Scause) TrapKind {
-        return switch (self) {
-            .environmentCallFromUMode => .syscall,
-
-            .userSoftwareInterrupt,
-            .supervisorSoftwareInterrupt,
-            .virtualSupervisorSoftwareInterrupt,
-            .machineSoftwareInterrupt,
-            .userTimerInterrupt,
-            .supervisorTimerInterrupt,
-            .virtualSupervisorTimerInterrupt,
-            .machineTimerInterrupt,
-            .userExternalInterrupt,
-            .supervisorExternalInterrupt,
-            .virtualSupervisorExternalInterrupt,
-            .machineExternalInterrupt,
-            .supervisorGuestExternalInterrupt,
-            .localCounterOverflowInterrupt,
-            => .interrupt,
-
-            else => .exception,
-        };
+if (self == .environmentCallFromUMode) return .syscall;
+if (self.isInterrupt()) return .interrupt:
+return .exception;
     }
 
     pub inline fn readRaw() usize {
