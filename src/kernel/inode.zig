@@ -249,15 +249,18 @@ pub fn put(inode: *Inode) void {
     defer inode_table.lock.release();
 
     if (inode.reference_count == 1 and inode.is_valid and inode.disk_inode.link_count == 0) {
-        // inode has no links and no other references: truncate and free.
-        inode_table.lock.release();
-        defer inode_table.lock.acquire();
-
         // ip->ref == 1 means no other process can have ip locked,
         // so this acquiresleep() won't block (or deadlock).
         inode.sleep_lock.acquire();
-        defer inode.sleep_lock.release();
+        inode_table.lock.release();// inode has no links and no other references: truncate and free.
+        
+        // undo lock changes after updates
+        defer {
+            inode.sleep_lock.release();
+            inode_table.lock.acquire();
+        }
 
+        // updates
         inode.truncate();
         inode.disk_inode.type = .free;
         inode.update();
