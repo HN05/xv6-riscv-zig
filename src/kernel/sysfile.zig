@@ -24,6 +24,7 @@ const Directory = @import("directory.zig");
 const fs = @import("filesystem.zig");
 const Pipe = @import("pipe.zig");
 const ad = @import("address.zig");
+const print = @import("klog.zig").print;
 
 pub fn sys_dup() u64 {
     const file = sysargs.getFile(.a0) catch |err| {
@@ -483,10 +484,11 @@ pub fn exec() !u64 {
             break;
         }
 
-        buffers[index] = kalloc.allocPage() orelse return ExecErrors.FailedGetMem;
+        const page = kalloc.allocPage() orelse return ExecErrors.FailedGetMem;
+        buffers[index] = page;
 
-        const argLength = sysargs.getStringFromAddres(userArg, buffers[index].?[0..page_size]) catch return ExecErrors.FailedGetArgData;
-        argv[index] = buffers[index].?[0..argLength];
+        const argLength = sysargs.getStringFromAddress(userArg, page[0..page_size]) catch return ExecErrors.FailedGetArgData;
+        argv[index] = page[0..argLength];
     }
 
     return execFile.exec(path[0..pathLen], argv[0..index]);

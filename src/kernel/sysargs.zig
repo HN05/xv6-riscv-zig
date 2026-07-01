@@ -40,7 +40,7 @@ pub fn getAddress(register: InputRegister) ?ad.UserAddress {
 pub fn getString(register: InputRegister, buffer: []u8) !usize {
     const address = getAddress(register);
     if (address) |a| {
-        return try getStringFromAddres(a, buffer);
+        return try getStringFromAddress(a, buffer);
     }
     return AddressNullErr.IsNull;
 }
@@ -107,7 +107,7 @@ pub fn fetchAddr(address: ad.UserAddress, destination: *ad.UserAddress) FetchAdd
 // Fetch the nul-terminated string at addr from the current process.
 // Returns length of string, not including nul 
 // may not include null terminator
-pub fn getStringFromAddres(address: ad.UserAddress, buffer: []u8) !usize {
+pub fn getStringFromAddress(address: ad.UserAddress, buffer: []u8) !usize {
     const process = Process.getCurrentForce();
     return mem.copyInString(process.pageTable, buffer, address);
 }

@@ -102,7 +102,7 @@ pub fn exec(path: []const u8, argv: [][]const u8) !usize {
 
         if (stackPointer < stackBase) return error.OutOfArgumentSpace;
 
-        try mem.copyOutTerminated(@ptrCast(@alignCast(pageTable)), .fromInt(stackPointer), arg);
+        try mem.copyOutTerminated(pageTable, .fromInt(stackPointer), arg);
         userStack[index] = stackPointer;
     }
     userStack[argv.len] = 0;

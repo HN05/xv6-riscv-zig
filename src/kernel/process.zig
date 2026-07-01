@@ -246,7 +246,7 @@ pub fn createPagetable(process: *Process) !ad.PageTablePtr {
     // at the highest user virtual address.
     // only the supervisor uses it, on the way
     // to/from user space, so not PTE_U.
-    try mem.kernelVirtualMap(pageTable, ml.trampoline_virtual_address, ml.trampolinePhysicalAddress(), ad.page_size, .{ .read = true, .write = true });
+    try mem.kernelVirtualMap(pageTable, ml.trampoline_virtual_address, ml.trampolinePhysicalAddress(), ad.page_size, .{ .read = true, .execute = true });
     errdefer mem.uvmUnmap(pageTable, ml.trampoline_virtual_address, 1, false);
 
     // map the trapframe page just below the trampoline page, for
