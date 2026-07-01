@@ -119,4 +119,3 @@ pub fn wakeup(channel: *anyopaque) void {
         }
     }
 }
-

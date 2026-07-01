@@ -38,17 +38,7 @@ pub fn init() void {
     status.write();
 
     // negotiate features
-    const features = mmio.Features{
-        .device_specific = .{ .block = .{
-            .ro = true,
-            .scsi = true,
-            .config_wce = true,
-            .mq = true,
-        } },
-        .any_layout = true,
-        .ring_event_idx = true,
-        .ring_indirect_desc = true,
-    };
+    const features = mmio.Features{}; // set all features to off
     features.write();
 
     // tell device that feature negotiation is complete.
