@@ -240,7 +240,7 @@ pub fn uvmDealloc(pgTable: ad.PageTablePtr, oldSize: usize, newSize: usize) usiz
 
     if (newSizeAligned < oldSizeAligned) {
         const pageCount = (oldSizeAligned - newSizeAligned) / ad.page_size;
-        uvmUnmap(pgTable, .fromInt(newSize), pageCount, true);
+        uvmUnmap(pgTable, .fromInt(newSizeAligned), pageCount, true);
     }
 
     return newSize;
@@ -269,7 +269,7 @@ fn freeWalk(pgTable: ad.PageTablePtr) void {
 pub fn uvmFree(pgTable: ad.PageTablePtr, size: usize) void {
     if (size > 0) {
         const sizeAligned = ad.pageRoundUp(size);
-        uvmUnmap(pgTable, .fromInt(0), sizeAligned, true);
+        uvmUnmap(pgTable, .fromInt(0), sizeAligned / ad.page_size, true);
     }
     freeWalk(pgTable);
 }
