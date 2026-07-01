@@ -141,7 +141,7 @@ fn getDiskInode(buffer: *Buffer, inode_number: u32) *DiskInode {
 // Returns an unlocked but allocated and referenced inode,
 // or NULL if there is no free inode.
 pub fn alloc(device: Device.ID, file_type: fs.FileType) !*Inode {
-    for (0..fs.superBlock.ninodes) |inode_number_usize| {
+    for (1..fs.superBlock.ninodes) |inode_number_usize| {
         const inode_number: u32 = @intCast(inode_number_usize);
         const buffer = Buffer.read(device, getInodeBlock(inode_number));
         defer buffer.release();
