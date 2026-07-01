@@ -49,6 +49,7 @@ const user_progs = [_]Prog{
     .{ .type = .zig, .name = "rbz" },
     .{ .type = .zig, .name = "rbz_failtest" },
     .{ .type = .zig, .name = "pbz" },
+    .{ .type = .zig, .name = "test" },
     .{ .type = .c, .name = "rb_basic" },
     .{ .type = .c, .name = "rb_failtest" },
     .{ .type = .c, .name = "rb_spsc_test" },

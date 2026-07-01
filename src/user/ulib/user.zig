@@ -58,10 +58,13 @@ pub fn kill(pid: Pid) !void {
 }
 
 // int exec(const char*, char**);
-pub fn exec(prog: [*c]const u8, argv: [*c][*c]const u8) noreturn {
-    _ = argv;
-    _ = prog;
-    @panic("Exec unimplemented");
+// On success, exec does not return because the process image is replaced.
+// On failure, returns error.ExecError.
+pub fn exec(prog: [*c]const u8, argv: [*c][*c]u8) error{ExecError}!void {
+    const res = c.exec(prog, argv);
+    if (res < 0) return error.ExecError;
+
+    @panic("exec returned unexpectedly");
 }
 // int open(const char*, int);
 pub fn open(file: [*c]const u8, flags: i32) !FileDescriptor {
@@ -120,4 +123,8 @@ pub fn uptime() i32 {
 pub fn ringbuf(name: [*:0]const u8, open_action: com.ringbuf.Op, addr: *?*anyopaque) com.ringbuf.RingbufError!void {
     const res = c.ringbuf(name, @intFromEnum(open_action), addr);
     if (res < 0) return com.ringbuf.errFromInt(com.ringbuf.RingbufError, @intCast(res));
+}
+
+pub fn printf(comptime fmt: [*:0]const u8, args: anytype) void {
+    _ = @call(.auto, c.printf, .{fmt} ++ args);
 }
