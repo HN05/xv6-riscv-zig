@@ -1,19 +1,20 @@
 # Initial process that execs /init.
 # This code runs in user space.
 
-#include "syscall.h"
+.equ SYS_exec, 7
+.equ SYS_exit, 2
 
-# exec(init, argv)
 .globl start
+# exec
 start:
         la a0, init
         la a1, argv
-        li a7, exec
+        li a7, SYS_exec
         ecall
 
 # for(;;) exit();
 exit:
-        li a7, exit
+        li a7, SYS_exit
         ecall
         jal exit
 
@@ -22,7 +23,7 @@ init:
   .string "/init\0"
 
 # char *argv[] = { init, 0 };
-.p2align 2
+.p2align 3
 argv:
-  .long init
-  .long 0
+  .quad init
+  .quad 0
