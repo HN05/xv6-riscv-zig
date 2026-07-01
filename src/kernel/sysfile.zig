@@ -347,9 +347,15 @@ pub fn open() !usize {
     const fd = try sysargs.fileDescriptorAllocate(file);
 
     if (inode.disk_inode.type == .device) {
-        file.data.device = .{ .device_id = inode.disk_inode.device, .inode = inode };
+        file.data = .{ .device = .{
+            .device_id = inode.disk_inode.device,
+            .inode = inode,
+        } };
     } else {
-        file.data.inode = .{ .offset = 0, .inode = inode };
+        file.data = .{ .inode = .{
+            .offset = 0,
+            .inode = inode,
+        } };
     }
     file.is_writeable = openMode.access.isWritable();
     file.is_readable = openMode.access.isReadable();

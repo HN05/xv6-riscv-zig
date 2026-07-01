@@ -34,11 +34,11 @@ pub fn alloc(read_file: **File, write_file: **File) !void {
     pipe.write_count = 0;
     pipe.lock = .{ .name = "pipe" };
 
-    read_file.*.data.pipe = pipe;
+    read_file.*.data = .{ .pipe = pipe };
     read_file.*.is_readable = true;
     read_file.*.is_writeable = false;
 
-    write_file.*.data.pipe = pipe;
+    write_file.*.data = .{ .pipe = pipe };
     write_file.*.is_readable = false;
     write_file.*.is_writeable = true;
 }
