@@ -24,7 +24,7 @@ pub const fs_magic = 0x10203040;
 //
 // mkfs computes the super block and builds an initial file system. The
 // super block describes the disk layout:
-pub const SuperBlock = struct {
+pub const SuperBlock = extern struct {
     magic: u32, // Must be FSMAGIC
     size: u32, // Size of file system image (blocks)
     nblocks: u32, // Number of data blocks

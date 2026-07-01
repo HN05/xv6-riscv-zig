@@ -109,11 +109,11 @@ disk_inode: DiskInode = .{},
 
 // On-disk inode structure
 pub const DiskInode = extern struct {
-    type: fs.FileType = .free, // File type
     device: Device.ID = .zero,
-    link_count: u16 = 0, // Number of links to inode in file system
     size: u32 = 0, // Size of file (bytes)
     addrs: [inode_address_count]u32 = [_]u32{0} ** inode_address_count, // Data block addresses
+    type: fs.FileType = .free, // File type
+    link_count: u16 = 0, // Number of links to inode in file system
 };
 
 const DiskInodeBlock = [inodes_per_block]DiskInode;
@@ -225,7 +225,7 @@ pub fn lock(inode: *Inode) void {
         const disk_inode = getDiskInode(buffer, inode.inode_number);
         inode.disk_inode = disk_inode.*;
         inode.is_valid = true;
-        if (inode.disk_inode.type == .free) @panic("ilock: no type");
+        if (inode.disk_inode.type == .free) @panic("can't lock a free inode");
     }
 }
 

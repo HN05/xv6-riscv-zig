@@ -143,11 +143,13 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     @memset(mem.asBytes(&de), 0);
     de.inum = mem.readVarInt(u16, mem.asBytes(&rootino), .little);
     @memcpy(de.name[0..1], ".");
+    de.name_length = 1;
     try iappend(io, @as(u32, rootino), mem.asBytes(&de));
 
     @memset(mem.asBytes(&de), 0);
     de.inum = mem.readVarInt(u16, mem.asBytes(&rootino), .little);
     @memcpy(de.name[0..2], "..");
+    de.name_length = 2;
     try iappend(io, @as(u32, rootino), mem.asBytes(&de));
 
     for (full_src_paths.items) |full_src_path| {
@@ -165,6 +167,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         @memset(mem.asBytes(&de), 0);
         de.inum = mem.readVarInt(u16, mem.asBytes(&inum), .little);
         @memcpy(de.name[0..shortname.len], shortname);
+        de.name_length = @intCast(shortname.len);
         try iappend(io, @as(u32, rootino), mem.asBytes(&de));
 
         const bufs = [_][]u8 {&buf};

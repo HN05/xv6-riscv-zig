@@ -1,14 +1,14 @@
 const std = @import("std");
-const param = @import("common").param;
 const ad = @import("address.zig");
 
+pub const max_device_count = 10;
 pub const console_major = 1;
 pub const disk_major = 2;
 
 pub const ID = packed struct(u32) {
     const total_bits = @bitSizeOf(u32);
     pub const minor_bit_size = total_bits - major_bit_size;
-    pub const major_bit_size = std.math.log2_int_ceil(usize, param.device_number);
+    pub const major_bit_size = std.math.log2_int_ceil(usize, max_device_count);
 
     major: std.meta.Int(.unsigned, major_bit_size),
     minor: std.meta.Int(.unsigned, minor_bit_size),
@@ -24,7 +24,7 @@ const Device = @This();
 read: ?*const fn (ad.AnyAddress, u32) ReadErrors!u32 = null,
 write: ?*const fn (ad.AnyAddress, u32) WriteErrors!u32 = null,
 
-pub var deviceTable = [_]Device{.{}} ** param.device_number;
+pub var deviceTable = [_]Device{.{}} ** max_device_count;
 
 pub const ReadErrors = error{ ProcessKilled, NoRunningProcess };
 pub const WriteErrors = error{};

@@ -339,7 +339,7 @@ pub fn open() !usize {
     errdefer inode.put(); // only iput on error
     defer inode.release();
 
-    if (inode.disk_inode.type == .device and (inode.disk_inode.device.major >= param.device_number)) return OpenErrors.InvalidDeviceMajor;
+    if (inode.disk_inode.type == .device and (inode.disk_inode.device.major >= Device.max_device_count)) return OpenErrors.InvalidDeviceMajor;
 
     const file = File.alloc() orelse return OpenErrors.FailedAllocFile;
     errdefer file.close();
@@ -390,7 +390,7 @@ pub fn sys_mknod() u64 {
     const major = sysargs.getInt(.a1);
     const minor = sysargs.getInt(.a2);
 
-    if (major >= param.device_number) {
+    if (major >= Device.max_device_count) {
         log.print("major out of range", .{});
         return sysargs.errorVal;
     }
@@ -447,6 +447,7 @@ pub fn chdir() ChdirErrors!void {
 
 pub fn sys_exec() u64 {
     return exec() catch |err| {
+        print("get exec error: {s}", .{@errorName(err)});
         log.print("could not exec: {s}", .{@errorName(err)});
         return sysargs.errorVal;
     };

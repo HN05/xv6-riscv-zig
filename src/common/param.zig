@@ -3,7 +3,6 @@ pub const NCPU = 8; // maximum number of CPUs
 pub const NOFILE = 16; // open files per process
 pub const NFILE = 100; // open files per system
 pub const NINODE = 50; // maximum number of active i-nodes
-pub const device_number = 10; // maximum major device number
 pub const ROOTDEV = 1; // device number of file system root disk
 pub const MAXARG = 32; // max exec arguments
 pub const max_num_operation_blocks = 10; // max # of blocks any FS op writes
