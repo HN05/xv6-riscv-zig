@@ -1,8 +1,8 @@
 const sys = @This();
 
 const c = @cImport({
-    @cInclude("kernel/types.h");
-    @cInclude("kernel/stat.h");
+    @cInclude("user/kernel_legacy/types.h");
+    @cInclude("user/kernel_legacy/stat.h");
     @cInclude("user/user.h");
 });
 const com = @import("common");

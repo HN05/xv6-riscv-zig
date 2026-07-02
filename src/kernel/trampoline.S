@@ -10,8 +10,10 @@
         # a page boundary.
         #
 
-#include "riscv.h"
-#include "memlayout.h"
+.equ PGSIZE, 4096
+.equ MAXVA, 0x4000000000
+.equ TRAMPOLINE, (MAXVA - PGSIZE)
+.equ TRAPFRAME, (TRAMPOLINE - PGSIZE)
 
 .section trampsec
 .globl trampoline

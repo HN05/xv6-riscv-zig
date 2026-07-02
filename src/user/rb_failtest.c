@@ -1,6 +1,6 @@
 // David Dursteler's failtest example
 
-#include "kernel/types.h"
+#include "user/kernel_legacy/types.h"
 #include "user/user.h"
 
 int main(char *argv, int argc) {

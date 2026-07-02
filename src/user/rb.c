@@ -1,7 +1,7 @@
-#include "kernel/types.h"
-#include "kernel/stat.h"
+#include "user/kernel_legacy/types.h"
+#include "user/kernel_legacy/stat.h"
 #include "user/user.h"
-#include "kernel/fs.h"
+#include "user/kernel_legacy/fs.h"
 
 #define CHUNK_LEN 510
 #define WRITE_AMT (10 * 1024 * 1024)

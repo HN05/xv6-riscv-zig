@@ -1,5 +1,5 @@
 // David Dursteler's basic example
-#include "kernel/types.h"
+#include "user/kernel_legacy/types.h"
 #include "user/user.h"
 
 void parent() {

@@ -1,4 +1,4 @@
-#include "kernel/types.h"
+#include "user/kernel_legacy/types.h"
 #include "user/user.h"
 
 #define MAX_BUFS 16
